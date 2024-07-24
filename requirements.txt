@@ -2,3 +2,4 @@ dash
 networkx
 pandas
 visdcc
+scipy
