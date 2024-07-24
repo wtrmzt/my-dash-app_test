@@ -1,10 +1,10 @@
 import dash
-from dash import dcc, html, Input, Output
+from dash import Dash, dcc, html, Input, Output
 import visdcc
 import pandas as pd
-import networkx as nx#
+import networkx as nx
 
-app = dash.Dash(__name__)
+app = Dash(__name__)
 num = 0
 
 # ドロップダウンのオプション
@@ -16,7 +16,6 @@ centrality_options = [
     {'label': '情報中心性', 'value': 'information_centrality'}
 ]
 
-# 
 nodes=[
 {'id': 'コンピューターリテラシー_0', 'label': 'コンピュータリテラシー', 'color': '#F8C6BD'},
 
@@ -163,9 +162,6 @@ edges=[
 ]
 
 
-
-
-
 # ノードとエッジをvisdccのデータ形式に変換
 nodes_for_visdcc = [{'id': node['id'], 'label': node['label'], 'color': node['color']} for node in nodes]
 edges_for_visdcc = [{'from': edge['from'], 'to': edge['to']} for edge in edges]
@@ -196,63 +192,43 @@ app.layout = html.Div([
     Output('net', 'data'),
     [Input('centrality-dropdown', 'value')]
 )
-
-
-
 def update_graph(centrality_type):
     # 中心性に応じてグラフのデータを更新するロジックをここに追加
-    # 例えば、ノードの色を変えたり、サイズを変更するなど
-    map_data={'nodes':nodes,'edges':edges}
-    #print(centrality_type)
     G = nx.Graph()
 
     # ノードの追加
-    for node in map_data['nodes']:
+    for node in nodes:
         G.add_node(node['id'], label=node['label'])
 
     # エッジの追加
-    for edge in map_data['edges']:
+    for edge in edges:
         G.add_edge(edge['from'], edge['to'])
 
-    centrality = pd.Series(nx.degree_centrality(G),name="degree_centrality")
+    # 中心性の計算
+    if centrality_type == "degree_centrality":
+        centrality = nx.degree_centrality(G)
+    elif centrality_type == "eigenvector_centrality":
+        centrality = nx.eigenvector_centrality_numpy(G)
+    elif centrality_type == "pagerank":
+        centrality = nx.pagerank(G)
+    elif centrality_type == "betweenness_centrality":
+        centrality = nx.betweenness_centrality(G)
+    elif centrality_type == "information_centrality":
+        centrality = nx.information_centrality(G)
 
-    if(centrality_type == "degree_centrality"):
-        # 次数中心性の計算
-        centrality = pd.Series(nx.degree_centrality(G),name="degree_centrality")
-    elif(centrality_type == "eigenvector_centrality"):
-        # 固有ベクトル中心性の計算
-        centrality = pd.Series(nx.eigenvector_centrality_numpy(G),name="eigenvector_centrality")
-    elif(centrality_type == "pagerank"):
-        # ページランク：PageRank
-        centrality = pd.Series(nx.pagerank(G), name="pagerank")
-    elif(centrality_type =="betweenness_centrality"):
-        # 媒介中心性：Betweeness centrality
-        centrality = pd.Series(nx.betweenness_centrality(G), name="betweenness_centrality")
-    elif(centrality_type == "information_centrality"):
-        # 情報中心性：Information centrality
-        centrality = pd.Series(nx.information_centrality(G), name="information_centrality")
+    # 中心性のスケーリングと色の更新
+    min_centrality = min(centrality.values())
+    max_centrality = max(centrality.values())
 
-    gg_centrality_rank = pd.concat([
-    centrality
-    ], axis=1).rank(ascending=False)
-
-    # 正規化
-    nomalized_gg_centrality_rank = gg_centrality_rank
-
-    #print(nomalized_gg_centrality_rank)
-
-    #print(nomalized_gg_centrality_rank)
-    comoku = centrality_type
-    # ノードの色を中心性に基づいて設定
-    nomalized_gg_centrality_rank[comoku] = (gg_centrality_rank[comoku] - gg_centrality_rank[comoku].min()) / (gg_centrality_rank[comoku].max() - gg_centrality_rank[comoku].min())
-    for node in map_data['nodes']:
-        #print(node['id'])
-        tmp = 255 - int(255 * nomalized_gg_centrality_rank[comoku][node['id']])
+    for node in nodes:
+        normalized_value = (centrality[node['id']] - min_centrality) / (max_centrality - min_centrality)
+        tmp = 255 - int(255 * normalized_value)
+        #print(node['id'],tmp)
         rgb_code = (tmp, tmp, tmp)
-
         hex_code = "#{:02x}{:02x}{:02x}".format(*rgb_code)
         node['color'] = hex_code
+
     return {'nodes': nodes, 'edges': edges}
-    
+
 if __name__ == '__main__':
     app.run_server(host='0.0.0.0', port=10000, debug=True)
