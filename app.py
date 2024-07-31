@@ -1,234 +1,448 @@
 import dash
-from dash import Dash, dcc, html, Input, Output
+from dash import dcc, html, Input, Output, State
 import visdcc
 import pandas as pd
 import networkx as nx
+from openai import OpenAI
+import re
+import ast
 
-app = Dash(__name__)
-num = 0
+app = dash.Dash(__name__)
 
-# ドロップダウンのオプション
-centrality_options = [
-    {'label': '次数中心性', 'value': 'degree_centrality'},
-    {'label': '固有ベクトル中心性', 'value': 'eigenvector_centrality'},
-    {'label': 'ページランク', 'value': 'pagerank'},
-    {'label': '媒介中心性', 'value': 'betweenness_centrality'},
-    {'label': '情報中心性', 'value': 'information_centrality'}
-]
+# CSVデータの読み込み
+def load_csv_data(subjectname):
+    nodes_file = './subject_maps/subject_map_'+ subjectname +'_nodes.csv'  # CSVファイルのパス
+    edges_file = './subject_maps/subject_map_'+subjectname+'_edges.csv'
+    nodes = []
+    edges = []
+    if subjectname=='リセット':
+        return nodes,edges
+    nodes_df = pd.read_csv(nodes_file)
+    for index, row in nodes_df.iterrows():
+        nodes.append({'id': row['id'], 'label': row['label'], 'color': row['color']})
 
-nodes=[
-{'id': 'コンピューターリテラシー_0', 'label': 'コンピュータリテラシー', 'color': '#F8C6BD'},
+    edges_df = pd.read_csv(edges_file)
+    for index, row in edges_df.iterrows():
+        edges.append({'from': row['from'], 'to': row['to']})
 
-{'id': 'コンピューターリテラシー_1', 'label': 'コンピュータの基本構成', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_2', 'label': 'テキスト整形・記述', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_3', 'label': '情報セキュリティ', 'color': '#F8C6BD'},
+    return nodes, edges
 
-{'id': 'コンピューターリテラシー_4', 'label': 'コンピュータの利用と認証', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_5', 'label': 'インターネットの原理', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_6', 'label': 'ネットワークと安全性', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_7', 'label': 'コンピュータの動作原理', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_8', 'label': 'ファイルシステムとファイル操作', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_9', 'label': 'テキストファイルとエディタ', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_10', 'label': 'コンピュータシステムとOS', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_11', 'label': 'フィルタとシェルスクリプト', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_12', 'label': 'マークアップによるテキスト整形', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_13', 'label': 'グラフィックス/図と表', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_14', 'label': 'アカデミックリテラシ', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_15', 'label': 'Webページ記述と情報アーキテクチャ', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_16', 'label': 'ソフトウェア開発とテストケース', 'color': '#F8C6BD'},
+# CSVデータの読み込み
+def relate_map(nodes, edges):
+    #new_nodes = [{'id': node['id'], 'label': f"Modified {node['label']}"} for node in nodes]
+    node_name=nodes[0]['label']
+    subject_name=nodes[0]['id']
+    print('node'+node_name)
+    print('subject'+subject_name)
+    new_map = text2dic(relate_GPToutput(node_name),subject_name)
+    new_map = rename_id_added(new_map,subject_name)
+    #node_name=nodes['label']
+    return new_map
+def reflection_map(text):
+    subject_name='振り返り'
+    new_map = text2dic(relate_GPToutput(text),subject_name)
+    new_map = rename_id(new_map,subject_name)
+    return new_map
+def relate_GPToutput(input_name):
+    client = OpenAI(api_key="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")
+    node_gpt_output=[]
+    res = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": '''#命令
+    あなたは優秀な教員です。以下の条件に従い、最善の出力をしてください。'''},  # 役割設定
+                {"role": "user", "content": '''
+    #条件
+    入力として、単元名が1つ与えられる。これを基に関連項目を示すように知識マップを作成する。知識マップ作成の条件は、以下である。
+    ・中心のノードは単元名。
+    ・高さ1の知識マップを作成。
+    ・それぞれのノードに対して、記述を基にして140字以内で説明文を生成せよ。
+    ・学習するにあたってその単元を深める項目であること
 
-{'id': 'コンピューターリテラシー_17', 'label': '認証', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_18', 'label': 'パスワード', 'color': '#F8C6BD'},
+    #出力
+    PythonのNetworkXライブラリで読み込み可能な、nodes辞書と、edges辞書の2つ。
+    ・nodes=[{'id':i,'label':"node_name",'sentence':"writetext"}]：ノードが格納される。idにはノードの番号を格納。labelにはノード名、sentenceには説明文を140字以内で格納する。
 
-{'id': 'コンピューターリテラシー_19', 'label': 'Unix', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_20', 'label': 'TCP/IP', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_21', 'label': 'IPアドレス', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_22', 'label': 'DNS', 'color': '#F8C6BD'},
+    ・edges=[{'from':node_id,'to':node_id}]：fromにはエッジの始点のノードid、toにはエッジの終点のノードidを格納する。
+    ・これ以外は必要ない。
 
-{'id': 'コンピューターリテラシー_23', 'label': '情報セキュリティ', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_24', 'label': '暗号技術', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_25', 'label': 'PKI', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_26', 'label': 'SSH', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_27', 'label': 'World Wide Web', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_28', 'label': '電子メール', 'color': '#F8C6BD'},
+    #入力
+                '''+input_name}               # 最初の質問
+            ],
+            temperature=0.0  # 温度（0-2, デフォルト1）
+        )
+    node_gpt_output.append(res.choices[0].message.content)
+    return node_gpt_output
+def clean_list_comments(input_str):
+    # 正規表現パターン定義
+    pattern = re.compile(r'\[.*?\]', re.DOTALL)
+    
+    # リスト部分を全て取得
+    lists = pattern.findall(input_str)
+    
+    cleaned_lists = []
+    
+    for lst in lists:
+        # # から始まる行を削除
+        lst_cleaned_comments = re.sub(r'#.*?\n', '', lst)
+        
+        # ] の前にある , を削除
+        lst_cleaned_comma = re.sub(r',\s*]', ']', lst_cleaned_comments)
+        
+        cleaned_lists.append(lst_cleaned_comma)
+    
+    # 元の文字列にクリーンなリストを置き換える
+    for original, cleaned in zip(lists, cleaned_lists):
+        input_str = input_str.replace(original, cleaned)
+    
+    return input_str
+def text2dic(node_gpt_output,subject_name):
+    node_gpt_map=[]
+    for i in range(len(node_gpt_output)):
+        # 正規表現でノードとエッジの部分を抽出
+        nodes_pattern = re.compile(r'nodes = \s*(\[\s*\{.*?\}\s*\])', re.DOTALL)
+        edges_pattern = re.compile(r'edges = \s*(\[\s*\{.*?\}\s*\])', re.DOTALL)
+        #print('nodes'+node_gpt_output[i])
+        nodes_match = nodes_pattern.search(clean_list_comments(node_gpt_output[i]))
+        edges_match = edges_pattern.search(clean_list_comments(node_gpt_output[i]))
 
-{'id': 'コンピューターリテラシー_29', 'label': 'プログラム', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_30', 'label': '小さなコンピュータ', 'color': '#F8C6BD'},
+        if nodes_match:
+            nodes_str = nodes_match.group(1)
+            nodes = ast.literal_eval(nodes_str)
+        else:
+            #print(i)
+            print("Nodes情報が見つかりませんでした。")
 
-{'id': 'コンピューターリテラシー_31', 'label': 'ファイルシステム', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_32', 'label': 'ディレクトリの操作', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_33', 'label': 'ファイルの保護設定', 'color': '#F8C6BD'},
+        if edges_match:
+            edges_str = edges_match.group(1)
+            edges = ast.literal_eval(edges_str)
+        else:
+            #print(i)
+            print("Edges情報が見つかりませんでした。")
+            #print(nodes)
+        node_gpt_map.append({'nodes':nodes,'edges':edges,'subject':subject_name})
+    #print(node_gpt_map)
+    #node_gpt_map=rename_id_added(node_gpt_map,subject_name)
+    #print(node_gpt_map)
 
-{'id': 'コンピューターリテラシー_34', 'label': '文字コード/UNICODE,UTF8', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_35', 'label': 'Emacsの操作', 'color': '#F8C6BD'},
+    return node_gpt_map
+def rename_id_added(map,name):
+    color = "#FFE568"
+    map=map[0]
+    root = map['nodes'][0]['id']
+    map['nodes'][0]['id'] = name# +'_'+str(map['nodes'][0]['id'])
+    map['nodes'][0]['color']=color
+    print(map)
+    for i in range(1,len(map['nodes'])):
+        map['nodes'][i]['id'] = name + '_' + str(map['nodes'][i]['id']) 
+        map['nodes'][i]['color'] = color
 
-{'id': 'コンピューターリテラシー_36', 'label': 'マルチタスク', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_37', 'label': 'プロセス観察', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_38', 'label': 'リダイレクションとパイプ', 'color': '#F8C6BD'},
+    for j in range(len(map['edges'])):
+        if map['edges'][j]['from'] == root:
+            map['edges'][j]['from'] = name# + '_' + str(map['edges'][j]['from'])
+            map['edges'][j]['to'] = name + '_' + str(map['edges'][j]['to'])
+        elif map['edges'][j]['to'] == root:
+            map['edges'][j]['from'] = name + '_' + str(map['edges'][j]['from'])
+            map['edges'][j]['to'] = name# + '_' + str(map['edges'][j]['to'])
+        else:
+            map['edges'][j]['from'] = name + '_' + str(map['edges'][j]['from'])
+            map['edges'][j]['to'] = name + '_' + str(map['edges'][j]['to'])
+    return map
+def rename_id(map,name):
+    print(map)
+    map=map[0]
+    color = {'情報I':'#A0D8EF','コンピューターリテラシー':'#F8C6BD','プログラミング通論':'#E3EBA4','美術A':'#FFFFFF','振り返り':'#FFFFFF'}
+    for i in range(len(map['nodes'])):
+        map['nodes'][i]['id'] = name + '_' + str(map['nodes'][i]['id'])
+        map['nodes'][i]['color'] = color[name]
+    for j in range(len(map['edges'])):
+        map['edges'][j]['from'] = name + '_' + str(map['edges'][j]['from'])
+        map['edges'][j]['to'] = name + '_' + str(map['edges'][j]['to'])
+    return map
+def reflection_GPToutput(input_text):
+    client = OpenAI(api_key="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")
+    node_gpt_output=[]
+    res = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": '''#命令
+    あなたは優秀な教員です。以下の条件に従い、最善の出力をしてください。'''},  # 役割設定
+                {"role": "user", "content": '''
+#条件
+入力に生徒の振り返り記述の内容が書かれる。この記述を基に、"分野ごと"に木を伸ばす知識マップを作成しなさい。
+・それぞれのノードに対して、140字以内で説明文を生成せよ。
+・ルートノードは、振り返り単元である。
+・「課題」・「演習」などのノードは使用しない
+・ノード名は簡潔にせよ
+・高さは自由である．必要に応じて伸ばして良い
+・作成した木を見返してもいいように、'学習の理解を深める体系的な内容のみ'であること。
+    #出力
+    PythonのNetworkXライブラリで読み込み可能な、nodes辞書と、edges辞書の2つ。
+    ・nodes=[{'id':i,'label':"node_name",'sentence':"writetext"}]：ノードが格納される。idにはノードの番号を格納。labelにはノード名、sentenceには説明文を140字以内で格納する。
 
-{'id': 'コンピューターリテラシー_39', 'label': 'ユティリティ', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_40', 'label': 'フィルタ', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_41', 'label': '置換', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_42', 'label': '整列', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_43', 'label': '正規表現', 'color': '#F8C6BD'},
+    ・edges=[{'from':node_id,'to':node_id}]：fromにはエッジの始点のノードid、toにはエッジの終点のノードidを格納する。
+    ・これ以外は必要ない。
 
-{'id': 'コンピューターリテラシー_44', 'label': 'マークアップ方式', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_45', 'label': 'LaTeX', 'color': '#F8C6BD'},
-
-{'id': 'コンピューターリテラシー_46', 'label': 'ピクセルグラフィックス', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_47', 'label': 'ベクターグラフィックス', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_48', 'label': 'LaTeXに画像を挿入', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_49', 'label': 'PostScript', 'color': '#F8C6BD'},
-
-{'id': 'コンピューターリテラシー_50', 'label': 'HTML', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_51', 'label': 'CSS', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_52', 'label': 'ブロック要素', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_53', 'label': 'インライン要素', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_54', 'label': '絶対URL', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_55', 'label': '相対URL', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_56', 'label': 'サイト構造', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_57', 'label': 'パディング', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_58', 'label': 'CSSグリッド', 'color': '#F8C6BD'},
-
-{'id': 'コンピューターリテラシー_59', 'label': 'JavaScript', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_60', 'label': '高水準言語', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_61', 'label': '低水準言語', 'color': '#F8C6BD'},
-{'id': 'コンピューターリテラシー_62', 'label': 'テスト', 'color': '#F8C6BD'}
-                  ]
-
-edges=[
-{'from': 'コンピューターリテラシー_0','to': 'コンピューターリテラシー_1'},
-{'from': 'コンピューターリテラシー_0','to': 'コンピューターリテラシー_2'},
-{'from': 'コンピューターリテラシー_0','to': 'コンピューターリテラシー_3'},
-{'from': 'コンピューターリテラシー_1','to': 'コンピューターリテラシー_5'},
-{'from': 'コンピューターリテラシー_1','to': 'コンピューターリテラシー_7'},
-{'from': 'コンピューターリテラシー_1','to': 'コンピューターリテラシー_8'},
-{'from': 'コンピューターリテラシー_1','to': 'コンピューターリテラシー_10'},
-{'from': 'コンピューターリテラシー_1','to': 'コンピューターリテラシー_11'},
-{'from': 'コンピューターリテラシー_1','to': 'コンピューターリテラシー_13'},
-{'from': 'コンピューターリテラシー_2','to': 'コンピューターリテラシー_9'},
-{'from': 'コンピューターリテラシー_2','to': 'コンピューターリテラシー_12'},
-{'from': 'コンピューターリテラシー_2','to': 'コンピューターリテラシー_14'},
-{'from': 'コンピューターリテラシー_2','to': 'コンピューターリテラシー_15'},
-{'from': 'コンピューターリテラシー_3','to': 'コンピューターリテラシー_4'},
-{'from': 'コンピューターリテラシー_3','to': 'コンピューターリテラシー_6'},
-{'from': 'コンピューターリテラシー_3','to': 'コンピューターリテラシー_16'},
-{'from': 'コンピューターリテラシー_4','to': 'コンピューターリテラシー_17'},
-{'from': 'コンピューターリテラシー_4','to': 'コンピューターリテラシー_18'},
-{'from': 'コンピューターリテラシー_5','to': 'コンピューターリテラシー_19'},
-{'from': 'コンピューターリテラシー_5','to': 'コンピューターリテラシー_20'},
-{'from': 'コンピューターリテラシー_5','to': 'コンピューターリテラシー_21'},
-{'from': 'コンピューターリテラシー_5','to': 'コンピューターリテラシー_22'},
-{'from': 'コンピューターリテラシー_6','to': 'コンピューターリテラシー_23'},
-{'from': 'コンピューターリテラシー_6','to': 'コンピューターリテラシー_24'},
-{'from': 'コンピューターリテラシー_6','to': 'コンピューターリテラシー_25'},
-{'from': 'コンピューターリテラシー_6','to': 'コンピューターリテラシー_26'},
-{'from': 'コンピューターリテラシー_6','to': 'コンピューターリテラシー_27'},
-{'from': 'コンピューターリテラシー_6','to': 'コンピューターリテラシー_28'},
-{'from': 'コンピューターリテラシー_7','to': 'コンピューターリテラシー_29'},
-{'from': 'コンピューターリテラシー_7','to': 'コンピューターリテラシー_30'},
-{'from': 'コンピューターリテラシー_8','to': 'コンピューターリテラシー_31'},
-{'from': 'コンピューターリテラシー_8','to': 'コンピューターリテラシー_32'},
-{'from': 'コンピューターリテラシー_8','to': 'コンピューターリテラシー_33'},
-{'from': 'コンピューターリテラシー_9','to': 'コンピューターリテラシー_34'},
-{'from': 'コンピューターリテラシー_9','to': 'コンピューターリテラシー_35'},
-{'from': 'コンピューターリテラシー_10','to': 'コンピューターリテラシー_36'},
-{'from': 'コンピューターリテラシー_10','to': 'コンピューターリテラシー_37'},
-{'from': 'コンピューターリテラシー_10','to': 'コンピューターリテラシー_38'},
-{'from': 'コンピューターリテラシー_11','to': 'コンピューターリテラシー_39'},
-{'from': 'コンピューターリテラシー_11','to': 'コンピューターリテラシー_40'},
-{'from': 'コンピューターリテラシー_11','to': 'コンピューターリテラシー_41'},
-{'from': 'コンピューターリテラシー_11','to': 'コンピューターリテラシー_42'},
-{'from': 'コンピューターリテラシー_11','to': 'コンピューターリテラシー_43'},
-{'from': 'コンピューターリテラシー_12','to': 'コンピューターリテラシー_44'},
-{'from': 'コンピューターリテラシー_12','to': 'コンピューターリテラシー_45'},
-{'from': 'コンピューターリテラシー_13','to': 'コンピューターリテラシー_46'},
-{'from': 'コンピューターリテラシー_13','to': 'コンピューターリテラシー_47'},
-{'from': 'コンピューターリテラシー_13','to': 'コンピューターリテラシー_48'},
-{'from': 'コンピューターリテラシー_13','to': 'コンピューターリテラシー_49'},
-{'from': 'コンピューターリテラシー_15','to': 'コンピューターリテラシー_50'},
-{'from': 'コンピューターリテラシー_15','to': 'コンピューターリテラシー_51'},
-{'from': 'コンピューターリテラシー_15','to': 'コンピューターリテラシー_52'},
-{'from': 'コンピューターリテラシー_15','to': 'コンピューターリテラシー_53'},
-{'from': 'コンピューターリテラシー_15','to': 'コンピューターリテラシー_54'},
-{'from': 'コンピューターリテラシー_15','to': 'コンピューターリテラシー_55'},
-{'from': 'コンピューターリテラシー_15','to': 'コンピューターリテラシー_56'},
-{'from': 'コンピューターリテラシー_15','to': 'コンピューターリテラシー_57'},
-{'from': 'コンピューターリテラシー_15','to': 'コンピューターリテラシー_58'},
-{'from': 'コンピューターリテラシー_16','to': 'コンピューターリテラシー_59'},
-{'from': 'コンピューターリテラシー_16','to': 'コンピューターリテラシー_60'},
-{'from': 'コンピューターリテラシー_16','to': 'コンピューターリテラシー_61'},
-{'from': 'コンピューターリテラシー_16','to': 'コンピューターリテラシー_62'}
-]
+    #入力
+                '''+input_text}               # 最初の質問
+            ],
+            temperature=0.0  # 温度（0-2, デフォルト1）
+        )
+    node_gpt_output.append(res.choices[0].message.content)
+    return node_gpt_output
 
 
-# ノードとエッジをvisdccのデータ形式に変換
-nodes_for_visdcc = [{'id': node['id'], 'label': node['label'], 'color': node['color']} for node in nodes]
-edges_for_visdcc = [{'from': edge['from'], 'to': edge['to']} for edge in edges]
+
+
+def similar_add_edge(map1, map2):
+    # マップ間の類似度計算とエッジの追加（ダミーデータ）
+    new_edges = map1['edges'] + [{'from': node['id'], 'to': node['id']} for node in map2['nodes']]
+
+    
+
+    return {'nodes': map1['nodes'] + map2['nodes'], 'edges': new_edges}
+
+# 初期ノードとエッジのデータ
+dropdown_list = ['コンピューターリテラシー','プログラミング通論', '情報I','リセット']
+initial_nodes, initial_edges = load_csv_data('コンピューターリテラシー')
+#for sub in subject_list:
+#    tmp_nodes, tmp_edges = load_csv_data(sub)
+#    initial_nodes.extend(tmp_nodes)
+#    initial_edges.extend(tmp_edges)
 
 app.layout = html.Div([
     html.Div(style={'width': '5%', 'height': '100vh', 'backgroundColor': '#4285f4', 'float': 'left'}),
     html.Div([
-        dcc.Dropdown(
-            id='centrality-dropdown',
-            options=centrality_options,
-            value='degree_centrality',
-            style={'margin': '20px'}
-        ),
-        visdcc.Network(
-            id='net',
-            data={'nodes': nodes_for_visdcc, 'edges': edges_for_visdcc},
-            options={
-                'height': '900px', 'width': '100%',
-                'clickToUse': True,
-                'physics': {'barnesHut': {'avoidOverlap': 0}},
-                'layout': {'randomSeed': num}
-            }
-        )
-    ], style={'width': '95%', 'float': 'left'})
+        html.Div([
+            html.H3('マップの表示1', style={'padding': '10px'}),
+            dcc.Dropdown(
+                id='dropdown-selection_map',
+                options=[
+                    {'label': dropdown_list[i], 'value': i} for i in range(0, 4)
+                ],
+                placeholder='マップが選択できます'
+            ),
+            visdcc.Network(
+                id='net',
+                data={'nodes': initial_nodes, 'edges': initial_edges},
+                options={
+                    'height': '800px', 'width': '100%',
+                    'clickToUse': True,
+                    'physics': {'barnesHut': {'avoidOverlap': 0}},
+                },
+                selection={'nodes': [], 'edges': []}
+            )
+        ], style={'width': '47%', 'height': '90vh', 'float': 'left', 'border': '1px solid black', 'border-radius': '10px', 'padding': '10px', 'margin': '5px'}),
+        html.Div([
+            html.Div([
+                html.H3('1で選択されたノードの表示', style={'padding': '10px'}),
+                html.Div(id='selected-node-info', style={'padding': '10px'}),
+                visdcc.Network(
+                    id='selected-net',
+                    data={'nodes': [], 'edges': []},
+                    options={
+                        'height': '400px', 'width': '100%',
+                        'clickToUse': True,
+                        'physics': {'barnesHut': {'avoidOverlap': 0}},
+                    }
+                )
+            ], style={'width': '48%', 'height': '50vh', 'float': 'left', 'border': '1px solid black', 'border-radius': '10px', 'padding': '10px', 'margin': '2px'}),
+            html.Div([
+                html.H3('ノード名', style={'padding': '10px'}),
+                html.Div(id='text-display', style={'padding': '10px'}),
+                html.H3('説明', style={'padding': '10px'}),
+                html.Div(id='sentence-display', style={'padding': '10px'}),
+                html.Button('グラフ生成', id='generate-graph-button', n_clicks=0, style={'margin-left': '10px'}),
+                html.Button('反映', id='reflect-changes-button', n_clicks=0, style={'margin-left': '10px'}),
+                html.Button('類似度計算', id='similarity-button', n_clicks=0, style={'margin-left': '10px'})
+            ], style={'width': '45%', 'height': '50vh','float': 'right', 'border': '1px solid black', 'border-radius': '10px', 'padding': '10px', 'margin': '2x'}),
+        ], style={'width': '50%', 'float': 'right'}),
+
+        html.Div([
+            html.H3('振り返り', style={'padding': '10px'}),
+            dcc.Dropdown(
+                id='dropdown-selection',
+                options=[
+                    {'label': f'Sample{i}', 'value': i} for i in range(1, 6)
+                ],
+                placeholder='テキストを選択してください'
+            ),
+            dcc.Textarea(
+                id='textarea-input',
+                style={'width': '100%', 'height': 200},
+                placeholder='ここにテキストを入力してください...',
+            ),
+            html.Button('追加', id='add-button', n_clicks=0, style={'margin-left': '10px'}),
+        ], style={'width': '48%', 'height': '36vh','float': 'right', 'border': '1px solid black', 'border-radius': '10px', 'padding': '10px', 'margin': '2px'})
+    ], style={'width': '95%', 'float': 'left'}),
+    dcc.Loading(
+        id="loading",
+        type="dot",
+        overlay_style={"visibility":"visible", "filter": "blur(2px)"},
+        children=html.Div(id="loading-output"),
+        style={'position': 'fixed', 'top': '50%', 'left': '50%', 'transform': 'translate(-50%, -50%)'}
+    )
 ])
+@app.callback(
+    Output('textarea-input', 'value'),
+    Input('dropdown-selection', 'value')
+)
+def update_textarea(selected_text):
+    if selected_text==None:
+        return ''
+    sample_list=[
+        '''dateコマンドのマニュアルに”that”の文字が一つも使われていないことが分かったが、一方、”this”の文字は1回のみ使われていた。したがってマニュアルの内容に指示語が多用されていないことが分かった。
+また、測定に際しtrとsortを用いて順番に並べると長くなってしまうため、同様の検証をまた行う際にはheadやtailを用いて表示する件数を少なくする工夫をするとコンピュータに負担がかからない測定ができると考える。
+''',
+'''測定結果より次の事実を得る。大文字小文字の区別の有無に違いによってisの文字数に増減がないことから疑問文” Is ~?”　の文は無い。マニュアルであるため疑問文は無いのは直感に従う。また、”e”,”g”の単体の文字が数回使われている。これは、e.g.の表現で「例えば」という意味を持つため、文字単体で複数回使用されていると考えられる。
+''',
+'''まず、凍結させてから、再開するまで時計の挙動を観察すると、再開した際に即座に現在の時刻の位置に針が移動し現在の時刻を示すようになった。
+また、プログラムを-TERMと-KILLで終了させたとき、この2つの違いは特にみられなかった。しかしインターネットで強制終了について調べると、最悪の場合OSのが破損する可能性があるという記述を見つけたため強制終了のコマンドは多用するべきではない。
+参考：https://pc-farm.co.jp/pc_column/pc/2284/
+''',
+'''結果より、サイズの辺の大きさが2倍になると、そのファイルサイズも2倍になる。また、黒色が使われている画像の方がややファイルサイズが大きいことが分かった。
+ここから考えられることは、Gimpでの加工の量によってファイルサイズが決まるのではないかということだ。画面全体に大きな絵を書くことによって大きなサイズであればあるほどファイルサイズが大きくなり、背景を黒として画面すべて加工することによってややファイルサイズが大きくなることと考える。
+''',
+'''私が知ったことは大きく分けて2つある。1つは、マウスによるファイル操作との比較である。2つ目は、処理速度の速さである。1つ目について、マウス操作でも同様の動作ができるものの手間自体はそんなに変わらない。しかし、保護モードを変更する作業などにいおいてはUnixシステムが優れている。2つ目について、通常では1つのファイルをコピーする際コピーに1秒弱かかってしまう。しかしUnixシステムは実行を行った直後にコピーされる。処理速度の速さはUnixシステムの強みであるといえるかもしれない。'''
+    ]
+    return sample_list[selected_text-1]
 
 @app.callback(
-    Output('net', 'data'),
-    [Input('centrality-dropdown', 'value')]
+    Output('net', 'data', allow_duplicate=True),
+    Output('selected-node-info', 'children'),
+    Output('text-display', 'children'),
+    Output('selected-net', 'data'),
+    Input('net', 'selection'),
+    State('net', 'data'),
+    prevent_initial_call=True
 )
-def update_graph(centrality_type):
-    # 中心性に応じてグラフのデータを更新するロジックをここに追加
-    G = nx.Graph()
+def update_selection(selection, net_data):
+    if not selection['nodes']:
+        raise dash.exceptions.PreventUpdate
 
-    # ノードの追加
-    for node in nodes:
-        G.add_node(node['id'], label=node['label'])
+    selected_node_id = selection['nodes'][0]
+    selected_node = next(node for node in net_data['nodes'] if node['id'] == selected_node_id)
 
-    # エッジの追加
-    for edge in edges:
-        G.add_edge(edge['from'], edge['to'])
+    selected_node_info = f"選択されたノード: {selected_node['label']}"
 
-    # 中心性の計算
-    if centrality_type == "degree_centrality":
-        centrality = nx.degree_centrality(G)
-    elif centrality_type == "eigenvector_centrality":
-        centrality = nx.eigenvector_centrality_numpy(G)
-    elif centrality_type == "pagerank":
-        centrality = nx.pagerank(G)
-    elif centrality_type == "betweenness_centrality":
-        centrality = nx.betweenness_centrality(G)
-    elif centrality_type == "information_centrality":
-        centrality = nx.information_centrality(G)
+    selected_net_data = {
+        'nodes': [selected_node],
+        'edges': [edge for edge in net_data['edges'] if edge['from'] == selected_node_id or edge['to'] == selected_node_id]
+    }
+    print(selected_net_data)
+    return net_data, selected_node_info, selected_node['label'], selected_net_data
 
-    # 中心性のスケーリングと色の更新
-    min_centrality = min(centrality.values())
-    max_centrality = max(centrality.values())
+@app.callback(
+    Output('net', 'data', allow_duplicate=True),
+    Output('selected-net', 'data', allow_duplicate=True),
+    Output('loading-output', 'children'),
+    Input('add-button', 'n_clicks'),
+    Input('generate-graph-button', 'n_clicks'),
+    Input('similarity-button', 'n_clicks'),
+    State('textarea-input', 'value'),
+    State('net', 'selection'),
+    State('net', 'data'),
+    State('selected-net', 'data'),
+    prevent_initial_call=True
+)
+def handle_buttons(add_clicks, generate_clicks, similarity_clicks, input_text, selection, net_data, selected_net_data):
+    ctx = dash.callback_context
 
-    for node in nodes:
-        normalized_value = (centrality[node['id']] - min_centrality) / (max_centrality - min_centrality)
-        tmp = 255 - int(255 * normalized_value)
-        #print(node['id'],tmp)
-        rgb_code = (tmp, tmp, tmp)
-        hex_code = "#{:02x}{:02x}{:02x}".format(*rgb_code)
-        node['color'] = hex_code
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
 
-    return {'nodes': nodes, 'edges': edges}
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    loading_message = ''
+    if button_id == 'add-button':
+        if not input_text:
+            raise dash.exceptions.PreventUpdate
+        
+        # ロード画面を表示
+        loading_message = '追加中...'
+        new_map = reflection_map(input_text)
+        
+        # ノードを更新
+        new_nodes = {node['id']: node for node in new_map['nodes']}
+        for i, node in enumerate(net_data['nodes']):
+            if node['id'] in new_nodes:
+                net_data['nodes'][i] = new_nodes.pop(node['id'])
+        net_data['nodes'].extend(new_nodes.values())
+        
+        # エッジを更新
+        new_edges = {(edge['from'], edge['to']): edge for edge in new_map['edges']}
+        for i, edge in enumerate(net_data['edges']):
+            edge_tuple = (edge['from'], edge['to'])
+            if edge_tuple in new_edges:
+                net_data['edges'][i] = new_edges.pop(edge_tuple)
+        net_data['edges'].extend(new_edges.values())
+        
+        loading_message = ''
+
+    elif button_id == 'generate-graph-button':
+        # ロード画面を表示
+        loading_message = 'グラフ生成中...'
+        
+        selected_nodes = [node for node in net_data['nodes'] if node['id'] in selection['nodes']]
+        selected_edges = [edge for edge in net_data['edges'] if edge['from'] in selection['nodes'] or edge['to'] in selection['nodes']]
+        
+        modified_data = relate_map(selected_nodes, selected_edges)
+        
+        loading_message = ''
+        
+        return net_data, modified_data, loading_message
+    
+    elif button_id == 'similarity-button':
+        # ロード画面を表示
+        loading_message = '類似度計算中...'
+        
+        if len(selected_net_data['nodes']) < 2:
+            raise dash.exceptions.PreventUpdate
+        
+        map1 = {'nodes': [selected_net_data['nodes'][0]], 'edges': []}
+        map2 = {'nodes': [selected_net_data['nodes'][1]], 'edges': []}
+        
+        new_map = similar_add_edge(map1, map2)
+        
+        net_data['nodes'].extend(new_map['nodes'])
+        net_data['edges'].extend(new_map['edges'])
+        
+        loading_message = ''
+
+    return net_data, dash.no_update, loading_message
+
+@app.callback(
+    Output('net', 'data', allow_duplicate=True),
+    Input('dropdown-selection_map', 'value'),
+    State('net', 'data'),
+    prevent_initial_call=True  # ここを追加します
+)
+def update_map(selected_map,net_data):
+    net_data['nodes'] = [node for node in net_data['nodes'] if '振り返り' in node['id']]
+    net_data['edges'] = [edge for edge in net_data['edges'] if '振り返り' in edge['from'] or '振り返り' in edge['to']]
+    if selected_map==3:
+    # IDに「振り返り」が含まれるノードとエッジをフィルタリング
+        return net_data
+    else:
+        tmp_nodes, tmp_edges = load_csv_data(dropdown_list[selected_map])
+        #initial_nodes.extend(tmp_nodes)
+        #initial_edges.extend(tmp_edges)
+        net_data['nodes'].extend(tmp_nodes)
+        net_data['edges'].extend(tmp_edges)
+        return net_data
+
+@app.callback(
+    Output('net', 'data', allow_duplicate=True),
+    Input('reflect-changes-button', 'n_clicks'),
+    State('selected-net', 'data'),
+    State('net', 'data'),
+    prevent_initial_call=True
+)
+def reflect_changes(n_clicks, selected_net_data, net_data):
+    updated_nodes = net_data['nodes'] + [node for node in selected_net_data['nodes'] if node not in net_data['nodes']]
+    updated_edges = net_data['edges'] + [edge for edge in selected_net_data['edges'] if edge not in net_data['edges']]
+    
+    return {'nodes': updated_nodes, 'edges': updated_edges}
 
 if __name__ == '__main__':
     app.run_server(host='0.0.0.0', port=10000, debug=True)
