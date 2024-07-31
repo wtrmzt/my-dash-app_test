@@ -3,3 +3,6 @@ networkx
 pandas
 visdcc
 scipy
+openai
+re
+ast
