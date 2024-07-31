@@ -5,3 +5,4 @@ visdcc
 scipy
 openai
 ast
+re
