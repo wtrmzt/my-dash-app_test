@@ -3,7 +3,7 @@ from dash import dcc, html, Input, Output, State
 import visdcc
 import pandas as pd
 import networkx as nx
-from openai import OpenAI
+import openai
 import re
 import ast
 import os
@@ -47,8 +47,8 @@ def reflection_map(text):
     return new_map
 def relate_GPToutput(input_name):
     node_gpt_output=[]
-    OpenAI.api_key = api_key
-    res = OpenAI.Completions.create(
+    openai.api_key = api_key
+    res = openai.Completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": '''#命令
@@ -162,9 +162,9 @@ def rename_id(map,name):
         map['edges'][j]['to'] = name + '_' + str(map['edges'][j]['to'])
     return map
 def reflection_GPToutput(input_text):
-    OpenAI.api_key = api_key
+    openai.api_key = api_key
     node_gpt_output=[]
-    res = OpenAI.Completions.create(
+    res = openai.Completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": '''#命令
