@@ -2,7 +2,4 @@ dash
 networkx
 pandas
 visdcc
-scipy
 openai
-ast
-re
