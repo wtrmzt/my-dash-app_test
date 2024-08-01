@@ -48,7 +48,7 @@ def reflection_map(text):
 def relate_GPToutput(input_name):
     node_gpt_output=[]
     openai.api_key = api_key
-    res = openai.Completions.create(
+    res = openai.Completion.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": '''#命令
@@ -164,7 +164,7 @@ def rename_id(map,name):
 def reflection_GPToutput(input_text):
     openai.api_key = api_key
     node_gpt_output=[]
-    res = openai.Completions.create(
+    res = openai.Completion.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": '''#命令
