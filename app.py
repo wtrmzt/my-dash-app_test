@@ -6,8 +6,10 @@ import networkx as nx
 from openai import OpenAI
 import re
 import ast
+import os
 
 app = dash.Dash(__name__)
+api_key = os.getenv("OPENAI_API_KEY")
 
 # CSVデータの読み込み
 def load_csv_data(subjectname):
@@ -45,7 +47,7 @@ def reflection_map(text):
     return new_map
 def relate_GPToutput(input_name):
     node_gpt_output=[]
-    client = OpenAI(api_key="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")
+    client = OpenAI(api_key)
     res = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -160,7 +162,7 @@ def rename_id(map,name):
         map['edges'][j]['to'] = name + '_' + str(map['edges'][j]['to'])
     return map
 def reflection_GPToutput(input_text):
-    client = OpenAI(api_key="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")
+    client = OpenAI(api_key)
     node_gpt_output=[]
     res = client.chat.completions.create(
             model="gpt-4o",
