@@ -44,8 +44,8 @@ def reflection_map(text):
     new_map = rename_id(new_map,subject_name)
     return new_map
 def relate_GPToutput(input_name):
-    client = OpenAI(api_key="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")
     node_gpt_output=[]
+    client = OpenAI(api_key="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")
     res = client.chat.completions.create(
             model="gpt-4o",
             messages=[
