@@ -42,7 +42,7 @@ def relate_map(nodes, edges):
     return new_map
 def reflection_map(text):
     subject_name='振り返り'
-    new_map = text2dic(relate_GPToutput(text),subject_name)
+    new_map = text2dic(reflection_GPToutput(text),subject_name)
     new_map = rename_id(new_map,subject_name)
     return new_map
 def relate_GPToutput(input_name):
