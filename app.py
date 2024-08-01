@@ -48,7 +48,7 @@ def reflection_map(text):
 def relate_GPToutput(input_name):
     node_gpt_output=[]
     OpenAI.api_key = api_key
-    res = openai.chat.completions.create(
+    res = OpenAI.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": '''#命令
