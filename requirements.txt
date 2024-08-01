@@ -2,4 +2,4 @@ dash
 networkx
 pandas
 visdcc
-openai
+openai==0.28
