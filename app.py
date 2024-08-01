@@ -47,8 +47,8 @@ def reflection_map(text):
     return new_map
 def relate_GPToutput(input_name):
     node_gpt_output=[]
-    client.api_key = api_key
-    res = client.chat.completions.create(
+    openai.api_key = api_key
+    res = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": '''#命令
@@ -162,9 +162,9 @@ def rename_id(map,name):
         map['edges'][j]['to'] = name + '_' + str(map['edges'][j]['to'])
     return map
 def reflection_GPToutput(input_text):
-    client.api_key = api_key
+    openai.api_key = api_key
     node_gpt_output=[]
-    res = client.chat.completions.create(
+    res = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": '''#命令
