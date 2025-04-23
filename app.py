@@ -1,18 +1,21 @@
+# ファイル名: app.py (または visualize_graph.py など)
+
 import csv
 import dash
-from dash import html, dcc
+from dash import html # dcc は現時点では未使用
 import visdcc
 import logging
-import os # ファイル存在確認用
-from dash import Dash,dcc, html, Input, Output, State
-from flask import Flask, send_file
+import os
+# from flask import Flask # Dash内で使用されるため、明示的なインポートは通常不要
 
-# --- ロギング設定 ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# --- ロギング設定 (Render環境向けに調整) ---
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    # Renderは標準出力/エラーのログを収集するためStreamHandlerを使用
+                    handlers=[logging.StreamHandler()])
 
-# --- ノードデータ (ご提供いただいたプログラムからコピー) ---
-# ご注意：以下のリストは長いため一部省略しています。
-# 実際のコードには、ご提供いただいた完全な all_nodes リストをここに記述してください。
+# --- ノードデータ ---
+# (ご提供いただいた all_nodes リスト全体をここに記述してください)
 all_nodes = [
     { "id":"アルゴリズム論第一","label":"アルゴリズム，正当性，停止性，計算量，データ構造，線形構造，木構造，ハッシュ法，ヒープ，探索木，平衡探索木，グラフ"},
     { "id":"アルゴリズム論第二","label":"アルゴリズム，計算量，グラフ，最短路，動的計画法，文字列照合，文法，隠れマルコフモデル，NP完全，NP困難，分枝限定法，近似アルゴリズム"},
@@ -113,191 +116,139 @@ all_nodes = [
 logging.info(f"定義されたノード数: {len(all_nodes)}")
 
 # --- 定数 ---
-EDGES_FILENAME = "related_edges.csv" # エッジ情報が格納されたCSVファイル名
+EDGES_FILENAME = "related_edges.csv" # エッジ情報CSVファイル
 
 # --- エッジデータの読み込み ---
 edges_for_vis = []
-node_ids_set = {node['id'] for node in all_nodes} # ノードIDのセットを事前に作成
+node_ids_set = {node['id'] for node in all_nodes} # 高速な存在確認のためセットを使用
 
-if os.path.exists(EDGES_FILENAME):
+# Renderのファイルシステムは一時的ですが、デプロイ時に含めれば読み込みは可能です
+csv_file_path = os.path.join(os.path.dirname(__file__), EDGES_FILENAME) # スクリプトと同じディレクトリを想定
+
+if os.path.exists(csv_file_path):
     try:
-        with open(EDGES_FILENAME, 'r', newline='', encoding='utf-8-sig') as csvfile:
-            # DictReader を使用して列名でアクセス
+        with open(csv_file_path, 'r', newline='', encoding='utf-8-sig') as csvfile:
             reader = csv.DictReader(csvfile)
             for i, row in enumerate(reader):
                 try:
                     source_id = row['Source']
                     target_id = row['Target']
-                    # スコアをfloat型に変換
                     score = float(row['Score'])
 
-                    # CSVファイル内のエッジに対応するノードが all_nodes に存在するか確認
                     if source_id in node_ids_set and target_id in node_ids_set:
                         edges_for_vis.append({
                             'from': source_id,
                             'to': target_id,
-                            'value': score, # スコアをエッジの太さや色分けに利用可能
-                            'title': f"Score: {score:.4f}", # マウスオーバーでスコア表示
-                            # スコアに応じて線の太さを動的に変更 (例)
-                            'width': max(0.5, 1.0 + score * 4.0), # 最小幅0.5、スコアに応じて太く
-                            'color': {'color': '#848484', 'highlight': '#2B7CE9', 'hover': '#2B7CE9'} # エッジの色設定
+                            'value': score,
+                            'title': f"Score: {score:.4f}",
+                            'width': max(0.5, 1.0 + score * 4.0),
+                            'color': {'color': '#848484', 'highlight': '#2B7CE9', 'hover': '#2B7CE9'}
                         })
                     else:
-                        logging.warning(f"CSV {i+1}行目: エッジ ({source_id} <=> {target_id}) のノードが定義されたノードリストに含まれていません。このエッジは無視されます。")
+                        logging.warning(f"CSV {i+1}行目: エッジ ({source_id} <=> {target_id}) のノードが定義されたノードリストに含まれていません。無視します。")
 
                 except KeyError as e:
-                    logging.error(f"CSVファイル '{EDGES_FILENAME}' の {i+1}行目に必要な列が見つかりません: {e}。ヘッダーが 'Source', 'Target', 'Score' であることを確認してください。")
-                    # 問題のある行以降の処理を続けるか、ここで中断するか選択できます
-                    continue # この行をスキップして次の行へ
+                    logging.error(f"CSVファイル '{EDGES_FILENAME}' の {i+1}行目に必要な列が見つかりません: {e}。ヘッダーを確認してください。")
+                    continue
                 except ValueError:
-                    logging.warning(f"CSVファイル '{EDGES_FILENAME}' の {i+1}行目: 'Score'列の値 '{row.get('Score', '')}' を数値に変換できませんでした。このエッジは無視されます。")
-                    continue # この行をスキップ
+                    logging.warning(f"CSVファイル '{EDGES_FILENAME}' の {i+1}行目: 'Score'列の値 '{row.get('Score', '')}' を数値に変換できませんでした。無視します。")
+                    continue
                 except Exception as e:
                     logging.error(f"CSVファイル '{EDGES_FILENAME}' の {i+1}行目の処理中に予期せぬエラーが発生しました: {e}")
-                    continue # この行をスキップ
+                    continue
 
         logging.info(f"'{EDGES_FILENAME}' から {len(edges_for_vis)} 件の有効なエッジ情報を読み込みました。")
 
     except FileNotFoundError:
-        logging.error(f"エッジファイル '{EDGES_FILENAME}' が見つかりません。エッジなしでグラフを表示します。")
-        # edges_for_vis は空のリストのまま
+        # ファイルが見つからない場合、エラーログを出力し、空のエッジリストで続行
+        logging.error(f"エッジファイル '{csv_file_path}' が見つかりません。アプリは起動しますが、エッジは表示されません。")
     except Exception as e:
         logging.error(f"'{EDGES_FILENAME}' の読み込み処理中にエラーが発生しました: {e}")
-        # edges_for_vis は空のリストのまま
 else:
-    logging.warning(f"エッジファイル '{EDGES_FILENAME}' が見つかりません。エッジなしでグラフを表示します。")
+    logging.warning(f"エッジファイル '{csv_file_path}' が見つかりません。エッジなしでグラフを表示します。")
+
 
 # --- 可視化用ノードデータの準備 ---
 nodes_for_vis = []
 for node in all_nodes:
-    # visdccで表示するためのノード情報を整形
     nodes_for_vis.append({
         'id': node['id'],
-        # ラベルが長い場合、グラフ上では短縮表示（例: 先頭15文字）
-        'label': node['id'],
-        # マウスオーバー時に全文表示（title属性）
-        'title': node['label'],
-        'shape': 'ellipse', # ノードの形状 (dot, box, circleなども可)
+        'label': node['id'], # グラフ上のラベルはID (ご提示のコード通り)
+        'title': node['label'], # マウスオーバー時のタイトルは元の長いラベル
+        'shape': 'ellipse',
+        # 'font': {'size': 14} # オプションでフォントサイズ指定可能 (vis_optionsでも設定可)
     })
 
-print(nodes_for_vis)
-print(edges_for_vis)
-# --- Dash アプリケーションの設定 ---
-app = Dash(__name__)
-# ブラウザのタブに表示されるタイトル
+# --- Dash アプリケーションのインスタンス化 ---
+# requests_pathname_prefix は通常Renderでは不要ですが、
+# サブディレクトリでホストする場合などは設定が必要になることがあります。
+app = dash.Dash(__name__)
 app.title = "ノード関連性グラフ"
 
-# visdcc.Network の表示オプション設定 (レイアウトやインタラクションの調整)
+# --- ★ WSGIサーバー (gunicorn) が参照するサーバーオブジェクト ---
+# Dashアプリケーション(`app`)が持つFlaskサーバーインスタンスを `server` 変数に代入
+server = app.server
+
+# --- visdcc.Network の表示オプション設定 ---
+# (vis_options 辞書の内容は変更ありません - ご提示のものをそのまま使用)
 vis_options = {
-    'height': '800px', # グラフ表示領域の高さ
-    'width': '100%',  # グラフ表示領域の幅
-    'physics': {      # 物理エンジンによるノード配置設定
-        'enabled': True,
-        # 代表的なレイアウトアルゴリズム: barnesHut, forceAtlas2Based, hierarchicalRepulsion, repulsion
-        'solver': 'forceAtlas2Based',
+    'height': '800px', 'width': '100%',
+    'physics': {
+        'enabled': True, 'solver': 'forceAtlas2Based',
         'forceAtlas2Based': {
-            'gravitationalConstant': -40, # ノード間の反発力 (値を小さくすると広がる)
-            'centralGravity': 0.01,       # 中心への引力 (大きいと中心に集まる)
-            'springLength': 100,         # エッジの自然長 (短いと近づく)
-            'springConstant': 0.05,      # エッジのバネ係数 (大きいと強く引かれる)
-            'damping': 0.09,             # 動きの減衰率
-            'avoidOverlap': 0.1          # ノードの重なり回避度 (0から1)
+            'gravitationalConstant': -40, 'centralGravity': 0.01,
+            'springLength': 100, 'springConstant': 0.05,
+            'damping': 0.09, 'avoidOverlap': 0.1
         },
-        'stabilization': { # レイアウト安定化の試行回数
-             'enabled': True,
-             'iterations': 1000, # 多いほど安定するが時間がかかる
-             'updateInterval': 50,
-             'onlyDynamicEdges': False,
-             'fit': True
+        'stabilization': {
+             'enabled': True, 'iterations': 1000, 'updateInterval': 50,
+             'onlyDynamicEdges': False, 'fit': True
          }
     },
-    'interaction': {  # ユーザー操作に関する設定
-        'tooltipDelay': 200,       # ツールチップ表示までの時間(ミリ秒)
-        'hideEdgesOnDrag': False,  # ドラッグ中にエッジを隠すか
-        'hideNodesOnDrag': False,  # ドラッグ中にノードを隠すか
-        'navigationButtons': True, # ズーム等のナビゲーションボタン表示
-        'keyboard': True,          # キーボード操作の有効化
-        'hover': True             # マウスオーバー時のハイライト有効化
+    'interaction': {
+        'tooltipDelay': 200, 'hideEdgesOnDrag': False, 'hideNodesOnDrag': False,
+        'navigationButtons': True, 'keyboard': True, 'hover': True
      },
-    'nodes': {        # ノードのデフォルトスタイル
-        'borderWidth': 1,
-        'borderWidthSelected': 2,
-        'shape': 'ellipse',
-        'size': 20, # ノードの基本サイズ
+    'nodes': {
+        'borderWidth': 1, 'borderWidthSelected': 2, 'shape': 'ellipse', 'size': 20,
         'color': {
-            'border': '#2B7CE9',
-            'background': '#D2E5FF',
-            'highlight': { # マウスオーバー時や選択時
-                'border': '#2B7CE9',
-                'background': '#FBFCFF'
-            },
-            'hover': { # マウスオーバー時
-                'border': '#2B7CE9',
-                'background': '#9ECEFF'
-            }
+            'border': '#2B7CE9', 'background': '#D2E5FF',
+            'highlight': {'border': '#2B7CE9', 'background': '#FBFCFF'},
+            'hover': {'border': '#2B7CE9', 'background': '#9ECEFF'}
         },
         'font': {
-            'color': '#343434',
-            'size': 12, # px
-            'face': 'arial',
-            'strokeWidth': 0, # 文字の縁取り幅
-            'strokeColor': '#ffffff'
+            'color': '#343434', 'size': 12, 'face': 'arial',
+            'strokeWidth': 0, 'strokeColor': '#ffffff'
         }
     },
-    'edges': {        # エッジのデフォルトスタイル
+    'edges': {
         'width': 1,
         'color': {
-            'color': '#848484',
-            'highlight': '#848484',
-            'hover': '#2B7CE9',
-            'inherit': False, # ノードの色を継承しない
-            'opacity': 0.7
+            'color': '#848484', 'highlight': '#848484', 'hover': '#2B7CE9',
+            'inherit': False, 'opacity': 0.7
         },
-        'arrows': { # 矢印の設定 (無向グラフなら不要)
-          'to': {'enabled': False, 'scaleFactor':1, 'type':'arrow'},
-          'middle': {'enabled': False},
-          'from': {'enabled': False}
-        },
-        'smooth': { # 線の滑らかさ
-            'enabled': True,
-            'type': "continuous", # dynamic, continuous, discrete, diagonalCross, straightCross, curvedCW, curvedCCW, cubicBezier
-            'roundness': 0.5
-        }
+        'arrows': {'to': {'enabled': False}, 'middle': {'enabled': False}, 'from': {'enabled': False}},
+        'smooth': {'enabled': True, 'type': "continuous", 'roundness': 0.5}
     }
 }
 
 # --- Dash アプリケーションのレイアウト定義 ---
 app.layout = html.Div(children=[
     html.H1(children="ノード関連性 可視化", style={'textAlign': 'center', 'marginBottom': '20px'}),
-
-    # visdcc.Networkコンポーネントでグラフを描画
     visdcc.Network(
-        id='net', # コンポーネントID
-        # ★ 作成したノードリストとエッジリストを渡す
+        id='net',
         data={'nodes': nodes_for_vis, 'edges': edges_for_vis},
-        # ★ 上で定義した表示オプションを渡す
         options=vis_options
     ),
-
     html.P(
-        f"（ノード数: {len(nodes_for_vis)}, エッジ数: {len(edges_for_vis)} - '{EDGES_FILENAME}' から読み込み）",
+        # ファイルパスではなくファイル名を表示する方が一般的
+        f"（ノード数: {len(nodes_for_vis)}, エッジ数: {len(edges_for_vis)} - '{os.path.basename(csv_file_path)}' から読み込み）",
         style={'textAlign': 'center', 'marginTop': '20px', 'fontSize': 'small', 'color': 'gray'}
     )
 ])
 
-# --- Dash サーバーの起動 ---
-if __name__ == '__main__':
-    # 必要なライブラリがインストールされているか確認を促すメッセージ
-    try:
-        import visdcc
-        import dash
-    except ImportError:
-        logging.error("必要なライブラリ (dash, visdcc) がインストールされていません。")
-        logging.error("インストールするには、ターミナルで `pip install dash visdcc` を実行してください。")
-        exit()
-
-    logging.info(f"Dashサーバーを起動します。準備ができたら、Webブラウザで http://127.0.0.1:8050/ を開いてください。")
-    logging.info("アプリケーションを終了するには、ターミナルで Ctrl+C を押してください。")
-    logging.info(f"このプログラムは '{EDGES_FILENAME}' ファイルを現在のディレクトリから読み込みます。")
-    # debug=True にすると開発中に便利ですが、エラーメッセージがブラウザに表示されるため注意
-    app.run_server(host='0.0.0.0', port=10000, debug=True)
+# --- サーバー起動部分 (Renderでは不要) ---
+# if __name__ == '__main__':
+#     app.run_server(host='0.0.0.0', port=10000, debug=True)
+# 上記の app.run_server(...) 行は削除するかコメントアウトしてください。
+# Render環境では gunicorn が server オブジェクトを使って起動します。
