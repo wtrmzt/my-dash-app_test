@@ -4,6 +4,7 @@ from dash import html, dcc
 import visdcc
 import logging
 import os # ファイル存在確認用
+from dash import Dash,dcc, html, Input, Output, State
 
 # --- ロギング設定 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
