@@ -3,3 +3,4 @@ networkx
 pandas
 visdcc
 openai==0.28
+Flask
