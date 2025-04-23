@@ -5,6 +5,7 @@ import visdcc
 import logging
 import os # ファイル存在確認用
 from dash import Dash,dcc, html, Input, Output, State
+from flask import Flask, send_file
 
 # --- ロギング設定 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -182,6 +183,7 @@ for node in all_nodes:
 print(nodes_for_vis)
 print(edges_for_vis)
 # --- Dash アプリケーションの設定 ---
+server = Flask(__name__)
 app = Dash(__name__, server=server)
 # ブラウザのタブに表示されるタイトル
 app.title = "ノード関連性グラフ"
