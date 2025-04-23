@@ -183,8 +183,7 @@ for node in all_nodes:
 print(nodes_for_vis)
 print(edges_for_vis)
 # --- Dash アプリケーションの設定 ---
-server = Flask(__name__)
-app = Dash(__name__, server=server)
+app = Dash(__name__)
 # ブラウザのタブに表示されるタイトル
 app.title = "ノード関連性グラフ"
 
