@@ -1,450 +1,301 @@
+import csv
 import dash
-from dash import dcc, html, Input, Output, State
+from dash import html, dcc
 import visdcc
-import pandas as pd
-import networkx as nx
-import openai
-import re
-import ast
-import os
+import logging
+import os # ファイル存在確認用
 
+# --- ロギング設定 ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- ノードデータ (ご提供いただいたプログラムからコピー) ---
+# ご注意：以下のリストは長いため一部省略しています。
+# 実際のコードには、ご提供いただいた完全な all_nodes リストをここに記述してください。
+all_nodes = [
+    { "id":"アルゴリズム論第一","label":"アルゴリズム，正当性，停止性，計算量，データ構造，線形構造，木構造，ハッシュ法，ヒープ，探索木，平衡探索木，グラフ"},
+    { "id":"アルゴリズム論第二","label":"アルゴリズム，計算量，グラフ，最短路，動的計画法，文字列照合，文法，隠れマルコフモデル，NP完全，NP困難，分枝限定法，近似アルゴリズム"},
+    { "id":"インタラクティブシステム","label":"フーリエ変換、相互相関、自己相関、ラプラス変換、行列、センシング、信号処理、画像処理、制御、ロボティクス"},
+    { "id":"オペレーションズ・リサーチ基礎","label":"数理モデル、最適化、線形計画法、動的計画法、ゲーム理論、待ち行列、プロジェクトスケジューリング"},
+    { "id":"オペレーションズ・リサーチ第一","label":"意思決定; 効用関数; 経済発注量; 新聞売り子; 発注点; 在庫管理; 割当問題; 輸送問題; 双対単体法; 非線形最適化; ラグランジュの未定定数法; KKT条件; 待ち行列理論; 確率過程"},
+    { "id":"オペレーションズ・リサーチ第二","label":"離散最適化"},
+    { "id":"グラフとネットワーク","label":"グラフ、ネットワーク、道、閉路、木、平面グラフ、彩色、辺彩色、マッチング、最大流"},
+    { "id":"ゲーム情報学","label":"ボードゲーム、パズル、ヒューリスティック探索、評価関数Board game, Puzzle, Heuristic Search, Evaluation Function"},
+    { "id":"コミュニケーション論","label":"コミュニケーション，認知，身体，進化，人間，科学技術，情報技術，社会，スポーツ"},
+    { "id":"コンピュータグラフィックス","label":"OpenGL、三次元座標変換、テクスチャマッピング、ラジオシティ法、CUDA"},
+    { "id":"コンピュータネットワーク","label":"ネットワークアーキテクチャ、プロトコル、通信システム、OSI、TCP/IP、LAN、WAN"},
+    { "id":"コンピュータリテラシー","label":"計算機の基本構成、 ログイン、 ログアウト、 UNIX、 コマンド、 ファイル、 文書編集、 エディタ、 コンピュータネットワーク、 電子メール、Web、 WWW、 HTML、 セキュリティ、 情報の検索、情報倫理、文書整形、LaTeX"},
+    { "id":"コンピュータ設計論","label":"コンピュータの構成と設計，プロセッサ，キャッシュ，並列プロセッサ，高速化"},
+    { "id":"サイエンス・コミュニケーション演習（集中）","label":"サイエンス　コミュニケーション"},
+    { "id":"シミュレーション理工学","label":"シミュレーション、物理モデル、数理モデル、数値解析、微分方程式"},
+    { "id":"ソフトウェア工学","label":"ソフトウェア開発，オブジェクト指向，ＵＭＬ，デザインパターン"},
+    { "id":"データサイエンス","label":"回帰分析、ベイズ統計、機械学習、最小二乗法、マルコフ連鎖モンテカルロ法"},
+    { "id":"データサイエンス演習","label":"データサイエンス、人工知能、機械学習Data science, Artificial Intelligence, Machine learning"},
+    { "id":"データベース論","label":"リレーショナルデータベース，リレーショナル代数，正規化，SQL，質問処理，データベース管理システム(DBMS)，トランザクション，データサイエンス"},
+    { "id":"ハイパフォーマンスコンピューティング","label":"高性能計算、連立1次方程式、ガウス消去法、LU分解、反復法、共役勾配法、固有値問題、高速フーリエ変換"},
+    { "id":"ヒューマンインタフェース","label":"対話システムのデザイン，キーボードと日本語入力，ポインティングデバイス，ペン，モバイルデバイス，音声認識，画像認識，視覚出力，可視化，音声合成，触覚出力，ヒューマンコンピュータインタラクション，マルチモーダル音声対話システムの現状"},
+    { "id":"ビジュアル情報処理","label":"コンピュータグラフィックス，画像処理，座標変換，形状表現，レンダリング，アニメーション"},
+    { "id":"プログラミング言語実験","label":"計算機言語、イベント駆動型言語、関数型言語、オブジェクト指向"},
+    { "id":"プログラミング通論","label":"ブロック構造, 引数機構, 再帰呼出し, スタック, キュー, デク, ポインタ, リスト, 整列, マージ, 探索"},
+    { "id":"プログラム言語論","label":"C，C++，Java，Lisp，Prolog"},
+    { "id":"ベンチャービジネス概論","label":"エクイティファイナンス、イノベーション、革新性、成長率、EXIT（出口戦略）、資本調達法、プロダクトマーケットフィット、IP・知的財産資産ビジネス、研究成果型ベンチャー"},
+    { "id":"マルチメディア処理（Ⅰ類）","label":"物理量、感覚量、情報のディジタル化、符号化、ファイル形式、音声処理、画像処理、データ量、3次元コンピュータグラフィックス、情報の可視化、オーサリング、マルチメディアシステム"},
+    { "id":"マーケティング科学","label":"機械学習; 情報推薦; 時系列予測; 因果推論; テキストマイニング"},
+    { "id":"メディアリテラシー","label":"メディア、映像、コンテンツデザイン、デジタル・ディバイディング、広告"},
+    { "id":"メディア分析法","label":"感性、五感、言語、オノマトペ、分析法、人工知能"},
+    { "id":"メディア情報学プログラミング演習","label":"オブジェクト指向プログラミング，Java言語，GUIプログラミング，グループプログラミング，OpenJDK, Swing"},
+    { "id":"メディア情報学実験","label":"メディア制作，メディア分析，認識"},
+    { "id":"メディア論","label":"メディアデザイン、メディア理論、インタラクションデザイン、 ユーザーインターフェース、メディアアート、ミュージアム"},
+    { "id":"メンタルヘルス論","label":"精神医学、心理学、メンタルヘルス、自殺予防、うつ病、発達障害、脳科学"},
+    { "id":"ユビキタスネットワーク","label":"知的・自律的エージェント，ロボット，インタラクティブシステム，プライバシー，知的活動支援，支援ジレンマ，超人スポーツ，ソフトウェア開発手法，インテリジェントシステム，バーチャルリアリティ，認知モデル，人間拡張技術，触力覚提示"},
+    { "id":"信頼性工学","label":"品質保証、信頼性設計、信頼性データ解析、システムの信頼性、安全性設計"},
+    { "id":"倫理学と哲学の間","label":"『永遠平和のために』、カント、平和論、社会契約論"},
+    { "id":"化学概論第一","label":"プランク定数・ラザフォードモデル・リュードベリ定数・ボーアの振動数条件・量子条件・ボーア半径・量子数・パウリの排他律・フント則・ドブロイ波・不確定性原理・波動方程式・周期律・構成原理・遮蔽効果・特性X線・モーズリーの法則・イオン化エネルギー・電子親和力・共有電子対・分子軌道法・LCAO-MO・結合性軌道・反結合性軌道・π軌道・混成軌道・非共有電子対・電気陰性度・極性分子・双極子モーメント・配位結合・水素結合・金属結合・自由電子・半導体"},
+    { "id":"化学概論第二","label":"熱力学第一法則, エンタルピー，熱容量, 反応熱, エントロピー，熱力学第二法則, 自由エネルギー，化学平衡, 電気化学, 電気エネルギー, 核エネルギー"},
+    { "id":"品質管理第一","label":"品質管理、SQC、TQM"},
+    { "id":"品質管理第二","label":"品質管理、品質機能展開、実験計画法、タグチメソッド、システム工学"},
+    { "id":"基礎プログラミングおよび演習","label":"プログラム、データ型、構造体、式、制御構造、関数、アルゴリズム、構造化プログラミング、デバッグ"},
+    { "id":"多変量解析","label":"Statistical learning, Machine learning, Data mining, Python.統計的学習理論, 機械学習, データマイニング, Python."},
+    { "id":"宇宙・地球科学","label":"宇宙、天文学、銀河、恒星、惑星、ブラックホール"},
+    { "id":"幾何学概論（Ⅰ類）","label":"平面曲線，空間曲線，曲率，曲率半径，捩率，回転数"},
+    { "id":"形式言語理論","label":"- Formal language（形式言語）- Finite automaton（有限オートマトン）- Regular expression（正則表現）- Regular language（正則言語）- Non-determinism（非決定性）- Minimization of finite automata（有限オートマトンの最小化）- Grammar（文法）- Chomsky hierarchy（チョムスキー階層）"},
+    { "id":"微分積分学第一","label":"◆実数の連続性，上限，下限，逆三角関数　◆合成関数の微分，逆関数の微分，対数微分法，平均値の定理，ロピタルの定理，連続微分可能，ライプニッツの公式，テーラーの定理，マクローリン展開　◆定積分，不定積分，部分積分，置換積分，広義積分，区分求積法"},
+    { "id":"微分積分学第二","label":"◆偏微分，偏導関数，全微分，ヤコビアン，接平面，法線，テーラーの定理，極値問題，偏微分作用素，ラプラシアン，陰関数，条件付き極値，ラグランジュの未定乗数法　◆重積分，累次積分，変数変換，極座標，線積分，グリーンの定理，曲面積"},
+    { "id":"応用代数学","label":"群・リー群・リー環・回転群"},
+    { "id":"応用数学第一","label":"--フーリエ級数--周期関数，相互相関関数，自己相関関数，周期的畳み込み，フーリエ係数，フーリエ級数，複素フーリエ係数，複素フーリエ級数，関数の区分的連続性，関数の区分的なめらか性，ディリクレの収束定理，ギブス現象，畳み込み定理，相互相関定理，自己相関定理，パーセヴァルの等式--フーリエ変換-- 絶対可積分関数，2乗可積分関数，非周期関数，相互相関関数，自己相関関数，畳み込み，フーリエ変換，逆フーリエ変換，フーリエ積分定理，畳み込み定理，相互相関定理，自己相関定理，パーセヴァルの等式，テスト関数，汎関数，シュワルツ超関数，デルタ関数，周期的デルタ関数，弱微分，超関数微分，微分方程式の解法"},
+    { "id":"応用数学第二","label":"ベクトル場，勾配，回転，発散，線積分，面積分，ガウスの定理，ストークスの定理，直交曲線座標，ラプラス方程式，熱伝導方程式，波動方程式，基本解，最大値原理Vector field, gradient, rotation, divergence, line integral, surface integral, Gauss’s theorem, Stokes’s theorem, orthogonal curvilinear coordinates, Laplace equation, heat equation, wave equation, fundamental solution, maximum principle"},
+    { "id":"情報通信システム","label":"情報理論、符号理論、符号化、情報量、エントロピー"},
+    { "id":"情報領域演習第一","label":"離散数学，プログラミング"},
+    { "id":"情報領域演習第三","label":"再帰的手続き，スタック，キュー，線形リスト，木構造，ハッシング，ヒープ，探索木，平衡探索木，グラフ構造"},
+    { "id":"情報領域演習第二","label":"プログラミング，論理設計学，計算機通論，確率論"},
+    { "id":"技術者倫理","label":"技術者、職業倫理、公益、プロフェッショナル、説明責任"},
+    { "id":"数値解析","label":"数値計算、数値解析、誤差評価"},
+    { "id":"数値計算","label":"計算科学、シミュレーション科学、データ科学"},
+    { "id":"数学演習第一","label":"微分積分学第一，線形代数学第一を参照"},
+    { "id":"数学演習第二","label":"微分積分学第二，線形代数学第二を参照"},
+    { "id":"数理計画法","label":"オペレーションズ・リサーチ, 数理最適化問題，線形計画問題， 双対性，最適性条件，アルゴリズム，プログラミング."},
+    { "id":"材料化学","label":"化学、機能性物質、遷移金属、d電子、有機材料、π電子、セラミックス、半導体、超伝導、磁性、高分子材料、エネルギー変換、光の吸収と色"},
+    { "id":"物体認識論","label":"画像認識，物体認識，特徴抽出，機械学習，深層学習，MATLAB"},
+    { "id":"物理学概論第一","label":"物理学，力学，波"},
+    { "id":"物理学概論第三","label":"量子論、粒子性と波動性、原子核、現代社会"},
+    { "id":"物理学概論第二","label":"物理学，熱，電磁気学"},
+    { "id":"物理学演習第一","label":"物理学、力学、波動"},
+    { "id":"物理学演習第二","label":"物理学、熱学、電磁気学"},
+    { "id":"現代数学入門Ａ","label":"命題，集合，写像，濃度，実数の連続性，Cauchy列，近傍，開集合・閉集合，Euclid空間，コンパクト集合，距離空間，Banach空間，一様収束"},
+    { "id":"現代数学入門Ｂ","label":"群，環，体，群の作用，"},
+    { "id":"環境論","label":"土壌生態系，都市の緑化，森林衰退，大気汚染ガス，野生生物，環境変動，森林利用，地球温暖化，自然浄化機能，森林消失，水保全"},
+    { "id":"生産管理","label":"生産管理、在庫管理、生産システム、需要予測、生産計画、日程計画、サプライチェーン、経営情報システム、環境経営、ヘルスケアシステム工学"},
+    { "id":"知的情報処理","label":"人工知能、探索、データマイニング、パターン認識と機械学習"},
+    { "id":"知的財産権","label":"知的財産・特許・発明・著作物・著作権・不正競争・意匠・商標・実用新案・考案"},
+    { "id":"確率論","label":"確率，確率変数，確率分布，モーメント，大数の法則，中心極限定理，分布論"},
+    { "id":"社会情報論","label":"高度情報通信ネットワーク社会，共創進化スマート社会，Society 5.0，ICT，時空間情報，公共選択"},
+    { "id":"経営・社会情報学実験","label":"学生実験"},
+    { "id":"統計学","label":"推定論，検定論，尤度"},
+    { "id":"線形代数学第一","label":"◆行列とその演算 ◆正則行列　◆行基本変形，簡約行列 ◆連立１次方程式 ◆逆行列 ◆行列の階数　◆行列式　◆余因子展開，余因子行列"},
+    { "id":"線形代数学第二","label":"◆ベクトル空間　◆１次独立・１次従属　◆部分空間　◆和空間　◆ベクトル空間の基底と次元 ◆座標 ◆線形写像　◆線形写像の表現行列　◆線形写像の核と像 ◆基底変換行列　◆固有値，固有ベクトル◆対角化"},
+    { "id":"複素関数論（Ⅰ類）","label":"複素数、複素平面、オイラーの公式、初等関数、正則関数、コーシー・リーマンの関係式、調和関数、コーシーの積分定理、テイラー展開、ローラン展開、特異点、極、留数定理"},
+    { "id":"解析学","label":"◆級数，正項級数，等比級数，コーシーの判定法，ダランベールの判定法，絶対収束，整級数，収束半径，テーラー展開　◆微分方程式，正規形，変数分離形，同次形，１階線形微分方程式，完全微分形，積分因子，特殊解，一般解，斉次方程式，特性方程式"},
+    { "id":"言語処理系論","label":"コンパイラ，インタプリタ，抽象機械，部分評価，コンパイラ最適化"},
+    { "id":"言語認知工学","label":"自然言語処理、言語認知科学、意味表現、ニューラルネットワーク、意味空間モデル、言語モデル、ネットワーク科学、情報検索"},
+    { "id":"計算機通論_1","label":"コンピュータアーキテクチャ、アセンブリ言語、ノイマン型計算機、数の表現"},
+    { "id":"計算理論","label":"計算可能性、計算量、ＮＰ完全性、チューリング機械"},
+    { "id":"認知科学","label":"認知科学，認知心理学，認知，心理学，脳，身体，進化，言語，学習，記憶，知覚，感覚，思考，障害，人工知能"},
+    { "id":"論理設計学","label":"ディジタル回路、組合せ論理回路、順序回路、フリップフロップ、カウンタ、シフトレジスタ、ブール代数"},
+    { "id":"進化計算論","label":"人工知能，進化計算，複雑系，創発，シミュレーション"},
+    { "id":"運動と筋の科学","label":"運動生理学，生物学，運動トレーニング"},
+    { "id":"金融工学（集中）","label":"リスク管理、ポートフォリオ理論、デリバティブ理論、ブラックショールズモデル"},
+    { "id":"離散数学","label":"集合、写像、命題論理、述語論理、２項関係、数学的帰納法、グラフ理論、濃度"},
+    { "id":"離散数理工学","label":"組合せ論，数え上げ，漸化式，母関数，二項係数，カタラン数，スターリング数，分割，ベル数，確率，期待値，マルコフの不等式，チェルノフ限界，マルコフ連鎖，推移確率，定常分布，ランダムウォーク，乱択アルゴリズム"},
+    { "id":"電気・電子回路","label":"直流回路、交流回路、周波数特性、微分回路、積分回路、トランジスター、オペアンプ"},
+    { "id":"音響信号処理","label":"音，音響，オーディオ，応用数学"}
+]
+logging.info(f"定義されたノード数: {len(all_nodes)}")
+
+# --- 定数 ---
+EDGES_FILENAME = "related_edges.csv" # エッジ情報が格納されたCSVファイル名
+
+# --- エッジデータの読み込み ---
+edges_for_vis = []
+node_ids_set = {node['id'] for node in all_nodes} # ノードIDのセットを事前に作成
+
+if os.path.exists(EDGES_FILENAME):
+    try:
+        with open(EDGES_FILENAME, 'r', newline='', encoding='utf-8-sig') as csvfile:
+            # DictReader を使用して列名でアクセス
+            reader = csv.DictReader(csvfile)
+            for i, row in enumerate(reader):
+                try:
+                    source_id = row['Source']
+                    target_id = row['Target']
+                    # スコアをfloat型に変換
+                    score = float(row['Score'])
+
+                    # CSVファイル内のエッジに対応するノードが all_nodes に存在するか確認
+                    if source_id in node_ids_set and target_id in node_ids_set:
+                        edges_for_vis.append({
+                            'from': source_id,
+                            'to': target_id,
+                            'value': score, # スコアをエッジの太さや色分けに利用可能
+                            'title': f"Score: {score:.4f}", # マウスオーバーでスコア表示
+                            # スコアに応じて線の太さを動的に変更 (例)
+                            'width': max(0.5, 1.0 + score * 4.0), # 最小幅0.5、スコアに応じて太く
+                            'color': {'color': '#848484', 'highlight': '#2B7CE9', 'hover': '#2B7CE9'} # エッジの色設定
+                        })
+                    else:
+                        logging.warning(f"CSV {i+1}行目: エッジ ({source_id} <=> {target_id}) のノードが定義されたノードリストに含まれていません。このエッジは無視されます。")
+
+                except KeyError as e:
+                    logging.error(f"CSVファイル '{EDGES_FILENAME}' の {i+1}行目に必要な列が見つかりません: {e}。ヘッダーが 'Source', 'Target', 'Score' であることを確認してください。")
+                    # 問題のある行以降の処理を続けるか、ここで中断するか選択できます
+                    continue # この行をスキップして次の行へ
+                except ValueError:
+                    logging.warning(f"CSVファイル '{EDGES_FILENAME}' の {i+1}行目: 'Score'列の値 '{row.get('Score', '')}' を数値に変換できませんでした。このエッジは無視されます。")
+                    continue # この行をスキップ
+                except Exception as e:
+                    logging.error(f"CSVファイル '{EDGES_FILENAME}' の {i+1}行目の処理中に予期せぬエラーが発生しました: {e}")
+                    continue # この行をスキップ
+
+        logging.info(f"'{EDGES_FILENAME}' から {len(edges_for_vis)} 件の有効なエッジ情報を読み込みました。")
+
+    except FileNotFoundError:
+        logging.error(f"エッジファイル '{EDGES_FILENAME}' が見つかりません。エッジなしでグラフを表示します。")
+        # edges_for_vis は空のリストのまま
+    except Exception as e:
+        logging.error(f"'{EDGES_FILENAME}' の読み込み処理中にエラーが発生しました: {e}")
+        # edges_for_vis は空のリストのまま
+else:
+    logging.warning(f"エッジファイル '{EDGES_FILENAME}' が見つかりません。エッジなしでグラフを表示します。")
+
+# --- 可視化用ノードデータの準備 ---
+nodes_for_vis = []
+for node in all_nodes:
+    # visdccで表示するためのノード情報を整形
+    nodes_for_vis.append({
+        'id': node['id'],
+        # ラベルが長い場合、グラフ上では短縮表示（例: 先頭15文字）
+        'label': node['id'],
+        # マウスオーバー時に全文表示（title属性）
+        'title': node['label'],
+        'shape': 'ellipse', # ノードの形状 (dot, box, circleなども可)
+    })
+
+print(nodes_for_vis)
+print(edges_for_vis)
+# --- Dash アプリケーションの設定 ---
 app = dash.Dash(__name__)
-api_key = os.getenv("OPENAI_API_KEY")
+# ブラウザのタブに表示されるタイトル
+app.title = "ノード関連性グラフ"
 
-# CSVデータの読み込み
-def load_csv_data(subjectname):
-    nodes_file = './subject_maps/subject_map_'+ subjectname +'_nodes.csv'  # CSVファイルのパス
-    edges_file = './subject_maps/subject_map_'+subjectname+'_edges.csv'
-    nodes = []
-    edges = []
-    if subjectname=='リセット':
-        return nodes,edges
-    nodes_df = pd.read_csv(nodes_file)
-    for index, row in nodes_df.iterrows():
-        nodes.append({'id': row['id'], 'label': row['label'], 'color': row['color']})
+# visdcc.Network の表示オプション設定 (レイアウトやインタラクションの調整)
+vis_options = {
+    'height': '800px', # グラフ表示領域の高さ
+    'width': '100%',  # グラフ表示領域の幅
+    'physics': {      # 物理エンジンによるノード配置設定
+        'enabled': True,
+        # 代表的なレイアウトアルゴリズム: barnesHut, forceAtlas2Based, hierarchicalRepulsion, repulsion
+        'solver': 'forceAtlas2Based',
+        'forceAtlas2Based': {
+            'gravitationalConstant': -40, # ノード間の反発力 (値を小さくすると広がる)
+            'centralGravity': 0.01,       # 中心への引力 (大きいと中心に集まる)
+            'springLength': 100,         # エッジの自然長 (短いと近づく)
+            'springConstant': 0.05,      # エッジのバネ係数 (大きいと強く引かれる)
+            'damping': 0.09,             # 動きの減衰率
+            'avoidOverlap': 0.1          # ノードの重なり回避度 (0から1)
+        },
+        'stabilization': { # レイアウト安定化の試行回数
+             'enabled': True,
+             'iterations': 1000, # 多いほど安定するが時間がかかる
+             'updateInterval': 50,
+             'onlyDynamicEdges': False,
+             'fit': True
+         }
+    },
+    'interaction': {  # ユーザー操作に関する設定
+        'tooltipDelay': 200,       # ツールチップ表示までの時間(ミリ秒)
+        'hideEdgesOnDrag': False,  # ドラッグ中にエッジを隠すか
+        'hideNodesOnDrag': False,  # ドラッグ中にノードを隠すか
+        'navigationButtons': True, # ズーム等のナビゲーションボタン表示
+        'keyboard': True,          # キーボード操作の有効化
+        'hover': True             # マウスオーバー時のハイライト有効化
+     },
+    'nodes': {        # ノードのデフォルトスタイル
+        'borderWidth': 1,
+        'borderWidthSelected': 2,
+        'shape': 'ellipse',
+        'size': 20, # ノードの基本サイズ
+        'color': {
+            'border': '#2B7CE9',
+            'background': '#D2E5FF',
+            'highlight': { # マウスオーバー時や選択時
+                'border': '#2B7CE9',
+                'background': '#FBFCFF'
+            },
+            'hover': { # マウスオーバー時
+                'border': '#2B7CE9',
+                'background': '#9ECEFF'
+            }
+        },
+        'font': {
+            'color': '#343434',
+            'size': 12, # px
+            'face': 'arial',
+            'strokeWidth': 0, # 文字の縁取り幅
+            'strokeColor': '#ffffff'
+        }
+    },
+    'edges': {        # エッジのデフォルトスタイル
+        'width': 1,
+        'color': {
+            'color': '#848484',
+            'highlight': '#848484',
+            'hover': '#2B7CE9',
+            'inherit': False, # ノードの色を継承しない
+            'opacity': 0.7
+        },
+        'arrows': { # 矢印の設定 (無向グラフなら不要)
+          'to': {'enabled': False, 'scaleFactor':1, 'type':'arrow'},
+          'middle': {'enabled': False},
+          'from': {'enabled': False}
+        },
+        'smooth': { # 線の滑らかさ
+            'enabled': True,
+            'type': "continuous", # dynamic, continuous, discrete, diagonalCross, straightCross, curvedCW, curvedCCW, cubicBezier
+            'roundness': 0.5
+        }
+    }
+}
 
-    edges_df = pd.read_csv(edges_file)
-    for index, row in edges_df.iterrows():
-        edges.append({'from': row['from'], 'to': row['to']})
+# --- Dash アプリケーションのレイアウト定義 ---
+app.layout = html.Div(children=[
+    html.H1(children="ノード関連性 可視化", style={'textAlign': 'center', 'marginBottom': '20px'}),
 
-    return nodes, edges
+    # visdcc.Networkコンポーネントでグラフを描画
+    visdcc.Network(
+        id='net', # コンポーネントID
+        # ★ 作成したノードリストとエッジリストを渡す
+        data={'nodes': nodes_for_vis, 'edges': edges_for_vis},
+        # ★ 上で定義した表示オプションを渡す
+        options=vis_options
+    ),
 
-# CSVデータの読み込み
-def relate_map(nodes, edges):
-    #new_nodes = [{'id': node['id'], 'label': f"Modified {node['label']}"} for node in nodes]
-    node_name=nodes[0]['label']
-    subject_name=nodes[0]['id']
-    print('node'+node_name)
-    print('subject'+subject_name)
-    new_map = text2dic(relate_GPToutput(node_name),subject_name)
-    new_map = rename_id_added(new_map,subject_name)
-    #node_name=nodes['label']
-    return new_map
-def reflection_map(text):
-    subject_name='振り返り'
-    new_map = text2dic(reflection_GPToutput(text),subject_name)
-    new_map = rename_id(new_map,subject_name)
-    return new_map
-def relate_GPToutput(input_name):
-    node_gpt_output=[]
-    openai.api_key = api_key
-    res = openai.Completion.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": '''#命令
-    あなたは優秀な教員です。以下の条件に従い、最善の出力をしてください。'''},  # 役割設定
-                {"role": "user", "content": '''
-    #条件
-    入力として、単元名が1つ与えられる。これを基に関連項目を示すように知識マップを作成する。知識マップ作成の条件は、以下である。
-    ・中心のノードは単元名。
-    ・高さ1の知識マップを作成。
-    ・それぞれのノードに対して、記述を基にして140字以内で説明文を生成せよ。
-    ・学習するにあたってその単元を深める項目であること
-
-    #出力
-    PythonのNetworkXライブラリで読み込み可能な、nodes辞書と、edges辞書の2つ。
-    ・nodes=[{'id':i,'label':"node_name",'sentence':"writetext"}]：ノードが格納される。idにはノードの番号を格納。labelにはノード名、sentenceには説明文を140字以内で格納する。
-
-    ・edges=[{'from':node_id,'to':node_id}]：fromにはエッジの始点のノードid、toにはエッジの終点のノードidを格納する。
-    ・これ以外は必要ない。
-
-    #入力
-                '''+input_name}               # 最初の質問
-            ],
-            temperature=0.0  # 温度（0-2, デフォルト1）
-        )
-    node_gpt_output.append(res.choices[0].message.content)
-    return node_gpt_output
-def clean_list_comments(input_str):
-    # 正規表現パターン定義
-    pattern = re.compile(r'\[.*?\]', re.DOTALL)
-    
-    # リスト部分を全て取得
-    lists = pattern.findall(input_str)
-    
-    cleaned_lists = []
-    
-    for lst in lists:
-        # # から始まる行を削除
-        lst_cleaned_comments = re.sub(r'#.*?\n', '', lst)
-        
-        # ] の前にある , を削除
-        lst_cleaned_comma = re.sub(r',\s*]', ']', lst_cleaned_comments)
-        
-        cleaned_lists.append(lst_cleaned_comma)
-    
-    # 元の文字列にクリーンなリストを置き換える
-    for original, cleaned in zip(lists, cleaned_lists):
-        input_str = input_str.replace(original, cleaned)
-    
-    return input_str
-def text2dic(node_gpt_output,subject_name):
-    node_gpt_map=[]
-    for i in range(len(node_gpt_output)):
-        # 正規表現でノードとエッジの部分を抽出
-        nodes_pattern = re.compile(r'nodes = \s*(\[\s*\{.*?\}\s*\])', re.DOTALL)
-        edges_pattern = re.compile(r'edges = \s*(\[\s*\{.*?\}\s*\])', re.DOTALL)
-        #print('nodes'+node_gpt_output[i])
-        nodes_match = nodes_pattern.search(clean_list_comments(node_gpt_output[i]))
-        edges_match = edges_pattern.search(clean_list_comments(node_gpt_output[i]))
-
-        if nodes_match:
-            nodes_str = nodes_match.group(1)
-            nodes = ast.literal_eval(nodes_str)
-        else:
-            #print(i)
-            print("Nodes情報が見つかりませんでした。")
-
-        if edges_match:
-            edges_str = edges_match.group(1)
-            edges = ast.literal_eval(edges_str)
-        else:
-            #print(i)
-            print("Edges情報が見つかりませんでした。")
-            #print(nodes)
-        node_gpt_map.append({'nodes':nodes,'edges':edges,'subject':subject_name})
-    #print(node_gpt_map)
-    #node_gpt_map=rename_id_added(node_gpt_map,subject_name)
-    #print(node_gpt_map)
-
-    return node_gpt_map
-def rename_id_added(map,name):
-    color = "#FFE568"
-    map=map[0]
-    root = map['nodes'][0]['id']
-    map['nodes'][0]['id'] = name# +'_'+str(map['nodes'][0]['id'])
-    map['nodes'][0]['color']=color
-    print(map)
-    for i in range(1,len(map['nodes'])):
-        map['nodes'][i]['id'] = name + '_' + str(map['nodes'][i]['id']) 
-        map['nodes'][i]['color'] = color
-
-    for j in range(len(map['edges'])):
-        if map['edges'][j]['from'] == root:
-            map['edges'][j]['from'] = name# + '_' + str(map['edges'][j]['from'])
-            map['edges'][j]['to'] = name + '_' + str(map['edges'][j]['to'])
-        elif map['edges'][j]['to'] == root:
-            map['edges'][j]['from'] = name + '_' + str(map['edges'][j]['from'])
-            map['edges'][j]['to'] = name# + '_' + str(map['edges'][j]['to'])
-        else:
-            map['edges'][j]['from'] = name + '_' + str(map['edges'][j]['from'])
-            map['edges'][j]['to'] = name + '_' + str(map['edges'][j]['to'])
-    return map
-def rename_id(map,name):
-    print(map)
-    map=map[0]
-    color = {'情報I':'#A0D8EF','コンピューターリテラシー':'#F8C6BD','プログラミング通論':'#E3EBA4','美術A':'#FFFFFF','振り返り':'#FFFFFF'}
-    for i in range(len(map['nodes'])):
-        map['nodes'][i]['id'] = name + '_' + str(map['nodes'][i]['id'])
-        map['nodes'][i]['color'] = color[name]
-    for j in range(len(map['edges'])):
-        map['edges'][j]['from'] = name + '_' + str(map['edges'][j]['from'])
-        map['edges'][j]['to'] = name + '_' + str(map['edges'][j]['to'])
-    return map
-def reflection_GPToutput(input_text):
-    openai.api_key = api_key
-    node_gpt_output=[]
-    res = openai.Completion.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": '''#命令
-    あなたは優秀な教員です。以下の条件に従い、最善の出力をしてください。'''},  # 役割設定
-                {"role": "user", "content": '''
-#条件
-入力に生徒の振り返り記述の内容が書かれる。この記述を基に、"分野ごと"に木を伸ばす知識マップを作成しなさい。
-・それぞれのノードに対して、140字以内で説明文を生成せよ。
-・ルートノードは、振り返り単元である。
-・「課題」・「演習」などのノードは使用しない
-・ノード名は簡潔にせよ
-・高さは自由である．必要に応じて伸ばして良い
-・作成した木を見返してもいいように、'学習の理解を深める体系的な内容のみ'であること。
-    #出力
-    PythonのNetworkXライブラリで読み込み可能な、nodes辞書と、edges辞書の2つ。
-    ・nodes=[{'id':i,'label':"node_name",'sentence':"writetext"}]：ノードが格納される。idにはノードの番号を格納。labelにはノード名、sentenceには説明文を140字以内で格納する。
-
-    ・edges=[{'from':node_id,'to':node_id}]：fromにはエッジの始点のノードid、toにはエッジの終点のノードidを格納する。
-    ・これ以外は必要ない。
-
-    #入力
-                '''+input_text}               # 最初の質問
-            ],
-            temperature=0.0  # 温度（0-2, デフォルト1）
-        )
-    node_gpt_output.append(res.choices[0].message.content)
-    return node_gpt_output
-
-
-
-
-def similar_add_edge(map1, map2):
-    # マップ間の類似度計算とエッジの追加（ダミーデータ）
-    new_edges = map1['edges'] + [{'from': node['id'], 'to': node['id']} for node in map2['nodes']]
-
-    
-
-    return {'nodes': map1['nodes'] + map2['nodes'], 'edges': new_edges}
-
-# 初期ノードとエッジのデータ
-dropdown_list = ['コンピューターリテラシー','プログラミング通論', '情報I','リセット']
-initial_nodes, initial_edges = load_csv_data('コンピューターリテラシー')
-#for sub in subject_list:
-#    tmp_nodes, tmp_edges = load_csv_data(sub)
-#    initial_nodes.extend(tmp_nodes)
-#    initial_edges.extend(tmp_edges)
-
-app.layout = html.Div([
-    html.Div(style={'width': '5%', 'height': '100vh', 'backgroundColor': '#4285f4', 'float': 'left'}),
-    html.Div([
-        html.Div([
-            html.H3('マップの表示1', style={'padding': '10px'}),
-            dcc.Dropdown(
-                id='dropdown-selection_map',
-                options=[
-                    {'label': dropdown_list[i], 'value': i} for i in range(0, 4)
-                ],
-                placeholder='マップが選択できます'
-            ),
-            visdcc.Network(
-                id='net',
-                data={'nodes': initial_nodes, 'edges': initial_edges},
-                options={
-                    'height': '800px', 'width': '100%',
-                    'clickToUse': True,
-                    'physics': {'barnesHut': {'avoidOverlap': 0}},
-                },
-                selection={'nodes': [], 'edges': []}
-            )
-        ], style={'width': '47%', 'height': '90vh', 'float': 'left', 'border': '1px solid black', 'border-radius': '10px', 'padding': '10px', 'margin': '5px'}),
-        html.Div([
-            html.Div([
-                html.H3('1で選択されたノードの表示', style={'padding': '10px'}),
-                html.Div(id='selected-node-info', style={'padding': '10px'}),
-                visdcc.Network(
-                    id='selected-net',
-                    data={'nodes': [], 'edges': []},
-                    options={
-                        'height': '400px', 'width': '100%',
-                        'clickToUse': True,
-                        'physics': {'barnesHut': {'avoidOverlap': 0}},
-                    }
-                )
-            ], style={'width': '48%', 'height': '50vh', 'float': 'left', 'border': '1px solid black', 'border-radius': '10px', 'padding': '10px', 'margin': '2px'}),
-            html.Div([
-                html.H3('ノード名', style={'padding': '10px'}),
-                html.Div(id='text-display', style={'padding': '10px'}),
-                html.H3('説明', style={'padding': '10px'}),
-                html.Div(id='sentence-display', style={'padding': '10px'}),
-                html.Button('グラフ生成', id='generate-graph-button', n_clicks=0, style={'margin-left': '10px'}),
-                html.Button('反映', id='reflect-changes-button', n_clicks=0, style={'margin-left': '10px'}),
-                html.Button('類似度計算', id='similarity-button', n_clicks=0, style={'margin-left': '10px'})
-            ], style={'width': '45%', 'height': '50vh','float': 'right', 'border': '1px solid black', 'border-radius': '10px', 'padding': '10px', 'margin': '2x'}),
-        ], style={'width': '50%', 'float': 'right'}),
-
-        html.Div([
-            html.H3('振り返り', style={'padding': '10px'}),
-            dcc.Dropdown(
-                id='dropdown-selection',
-                options=[
-                    {'label': f'Sample{i}', 'value': i} for i in range(1, 6)
-                ],
-                placeholder='テキストを選択してください'
-            ),
-            dcc.Textarea(
-                id='textarea-input',
-                style={'width': '100%', 'height': 200},
-                placeholder='ここにテキストを入力してください...',
-            ),
-            html.Button('追加', id='add-button', n_clicks=0, style={'margin-left': '10px'}),
-        ], style={'width': '48%', 'height': '36vh','float': 'right', 'border': '1px solid black', 'border-radius': '10px', 'padding': '10px', 'margin': '2px'})
-    ], style={'width': '95%', 'float': 'left'}),
-    dcc.Loading(
-        id="loading",
-        type="dot",
-        overlay_style={"visibility":"visible", "filter": "blur(2px)"},
-        children=html.Div(id="loading-output"),
-        style={'position': 'fixed', 'top': '50%', 'left': '50%', 'transform': 'translate(-50%, -50%)'}
+    html.P(
+        f"（ノード数: {len(nodes_for_vis)}, エッジ数: {len(edges_for_vis)} - '{EDGES_FILENAME}' から読み込み）",
+        style={'textAlign': 'center', 'marginTop': '20px', 'fontSize': 'small', 'color': 'gray'}
     )
 ])
-@app.callback(
-    Output('textarea-input', 'value'),
-    Input('dropdown-selection', 'value')
-)
-def update_textarea(selected_text):
-    if selected_text==None:
-        return ''
-    sample_list=[
-        '''dateコマンドのマニュアルに”that”の文字が一つも使われていないことが分かったが、一方、”this”の文字は1回のみ使われていた。したがってマニュアルの内容に指示語が多用されていないことが分かった。
-また、測定に際しtrとsortを用いて順番に並べると長くなってしまうため、同様の検証をまた行う際にはheadやtailを用いて表示する件数を少なくする工夫をするとコンピュータに負担がかからない測定ができると考える。
-''',
-'''測定結果より次の事実を得る。大文字小文字の区別の有無に違いによってisの文字数に増減がないことから疑問文” Is ~?”　の文は無い。マニュアルであるため疑問文は無いのは直感に従う。また、”e”,”g”の単体の文字が数回使われている。これは、e.g.の表現で「例えば」という意味を持つため、文字単体で複数回使用されていると考えられる。
-''',
-'''まず、凍結させてから、再開するまで時計の挙動を観察すると、再開した際に即座に現在の時刻の位置に針が移動し現在の時刻を示すようになった。
-また、プログラムを-TERMと-KILLで終了させたとき、この2つの違いは特にみられなかった。しかしインターネットで強制終了について調べると、最悪の場合OSのが破損する可能性があるという記述を見つけたため強制終了のコマンドは多用するべきではない。
-参考：https://pc-farm.co.jp/pc_column/pc/2284/
-''',
-'''結果より、サイズの辺の大きさが2倍になると、そのファイルサイズも2倍になる。また、黒色が使われている画像の方がややファイルサイズが大きいことが分かった。
-ここから考えられることは、Gimpでの加工の量によってファイルサイズが決まるのではないかということだ。画面全体に大きな絵を書くことによって大きなサイズであればあるほどファイルサイズが大きくなり、背景を黒として画面すべて加工することによってややファイルサイズが大きくなることと考える。
-''',
-'''私が知ったことは大きく分けて2つある。1つは、マウスによるファイル操作との比較である。2つ目は、処理速度の速さである。1つ目について、マウス操作でも同様の動作ができるものの手間自体はそんなに変わらない。しかし、保護モードを変更する作業などにいおいてはUnixシステムが優れている。2つ目について、通常では1つのファイルをコピーする際コピーに1秒弱かかってしまう。しかしUnixシステムは実行を行った直後にコピーされる。処理速度の速さはUnixシステムの強みであるといえるかもしれない。'''
-    ]
-    return sample_list[selected_text-1]
 
-@app.callback(
-    Output('net', 'data', allow_duplicate=True),
-    Output('selected-node-info', 'children'),
-    Output('text-display', 'children'),
-    Output('selected-net', 'data'),
-    Input('net', 'selection'),
-    State('net', 'data'),
-    prevent_initial_call=True
-)
-def update_selection(selection, net_data):
-    if not selection['nodes']:
-        raise dash.exceptions.PreventUpdate
-
-    selected_node_id = selection['nodes'][0]
-    selected_node = next(node for node in net_data['nodes'] if node['id'] == selected_node_id)
-
-    selected_node_info = f"選択されたノード: {selected_node['label']}"
-
-    selected_net_data = {
-        'nodes': [selected_node],
-        'edges': [edge for edge in net_data['edges'] if edge['from'] == selected_node_id or edge['to'] == selected_node_id]
-    }
-    print(selected_net_data)
-    return net_data, selected_node_info, selected_node['label'], selected_net_data
-
-@app.callback(
-    Output('net', 'data', allow_duplicate=True),
-    Output('selected-net', 'data', allow_duplicate=True),
-    Output('loading-output', 'children'),
-    Input('add-button', 'n_clicks'),
-    Input('generate-graph-button', 'n_clicks'),
-    Input('similarity-button', 'n_clicks'),
-    State('textarea-input', 'value'),
-    State('net', 'selection'),
-    State('net', 'data'),
-    State('selected-net', 'data'),
-    prevent_initial_call=True
-)
-def handle_buttons(add_clicks, generate_clicks, similarity_clicks, input_text, selection, net_data, selected_net_data):
-    ctx = dash.callback_context
-
-    if not ctx.triggered:
-        raise dash.exceptions.PreventUpdate
-
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-
-    loading_message = ''
-    if button_id == 'add-button':
-        if not input_text:
-            raise dash.exceptions.PreventUpdate
-        
-        # ロード画面を表示
-        loading_message = '追加中...'
-        new_map = reflection_map(input_text)
-        
-        # ノードを更新
-        new_nodes = {node['id']: node for node in new_map['nodes']}
-        for i, node in enumerate(net_data['nodes']):
-            if node['id'] in new_nodes:
-                net_data['nodes'][i] = new_nodes.pop(node['id'])
-        net_data['nodes'].extend(new_nodes.values())
-        
-        # エッジを更新
-        new_edges = {(edge['from'], edge['to']): edge for edge in new_map['edges']}
-        for i, edge in enumerate(net_data['edges']):
-            edge_tuple = (edge['from'], edge['to'])
-            if edge_tuple in new_edges:
-                net_data['edges'][i] = new_edges.pop(edge_tuple)
-        net_data['edges'].extend(new_edges.values())
-        
-        loading_message = ''
-
-    elif button_id == 'generate-graph-button':
-        # ロード画面を表示
-        loading_message = 'グラフ生成中...'
-        
-        selected_nodes = [node for node in net_data['nodes'] if node['id'] in selection['nodes']]
-        selected_edges = [edge for edge in net_data['edges'] if edge['from'] in selection['nodes'] or edge['to'] in selection['nodes']]
-        
-        modified_data = relate_map(selected_nodes, selected_edges)
-        
-        loading_message = ''
-        
-        return net_data, modified_data, loading_message
-    
-    elif button_id == 'similarity-button':
-        # ロード画面を表示
-        loading_message = '類似度計算中...'
-        
-        if len(selected_net_data['nodes']) < 2:
-            raise dash.exceptions.PreventUpdate
-        
-        map1 = {'nodes': [selected_net_data['nodes'][0]], 'edges': []}
-        map2 = {'nodes': [selected_net_data['nodes'][1]], 'edges': []}
-        
-        new_map = similar_add_edge(map1, map2)
-        
-        net_data['nodes'].extend(new_map['nodes'])
-        net_data['edges'].extend(new_map['edges'])
-        
-        loading_message = ''
-
-    return net_data, dash.no_update, loading_message
-
-@app.callback(
-    Output('net', 'data', allow_duplicate=True),
-    Input('dropdown-selection_map', 'value'),
-    State('net', 'data'),
-    prevent_initial_call=True  # ここを追加します
-)
-def update_map(selected_map,net_data):
-    net_data['nodes'] = [node for node in net_data['nodes'] if '振り返り' in node['id']]
-    net_data['edges'] = [edge for edge in net_data['edges'] if '振り返り' in edge['from'] or '振り返り' in edge['to']]
-    if selected_map==3:
-    # IDに「振り返り」が含まれるノードとエッジをフィルタリング
-        return net_data
-    else:
-        tmp_nodes, tmp_edges = load_csv_data(dropdown_list[selected_map])
-        #initial_nodes.extend(tmp_nodes)
-        #initial_edges.extend(tmp_edges)
-        net_data['nodes'].extend(tmp_nodes)
-        net_data['edges'].extend(tmp_edges)
-        return net_data
-
-@app.callback(
-    Output('net', 'data', allow_duplicate=True),
-    Input('reflect-changes-button', 'n_clicks'),
-    State('selected-net', 'data'),
-    State('net', 'data'),
-    prevent_initial_call=True
-)
-def reflect_changes(n_clicks, selected_net_data, net_data):
-    updated_nodes = net_data['nodes'] + [node for node in selected_net_data['nodes'] if node not in net_data['nodes']]
-    updated_edges = net_data['edges'] + [edge for edge in selected_net_data['edges'] if edge not in net_data['edges']]
-    
-    return {'nodes': updated_nodes, 'edges': updated_edges}
-
+# --- Dash サーバーの起動 ---
 if __name__ == '__main__':
+    # 必要なライブラリがインストールされているか確認を促すメッセージ
+    try:
+        import visdcc
+        import dash
+    except ImportError:
+        logging.error("必要なライブラリ (dash, visdcc) がインストールされていません。")
+        logging.error("インストールするには、ターミナルで `pip install dash visdcc` を実行してください。")
+        exit()
+
+    logging.info(f"Dashサーバーを起動します。準備ができたら、Webブラウザで http://127.0.0.1:8050/ を開いてください。")
+    logging.info("アプリケーションを終了するには、ターミナルで Ctrl+C を押してください。")
+    logging.info(f"このプログラムは '{EDGES_FILENAME}' ファイルを現在のディレクトリから読み込みます。")
+    # debug=True にすると開発中に便利ですが、エラーメッセージがブラウザに表示されるため注意
     app.run_server(host='0.0.0.0', port=10000, debug=True)
