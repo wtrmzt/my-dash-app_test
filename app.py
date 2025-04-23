@@ -248,7 +248,7 @@ app.layout = html.Div(children=[
 ])
 
 # --- サーバー起動部分 (Renderでは不要) ---
-# if __name__ == '__main__':
-#     app.run_server(host='0.0.0.0', port=10000, debug=True)
+if __name__ == '__main__':
+    app.run_server(host='0.0.0.0', port=10000, debug=True)
 # 上記の app.run_server(...) 行は削除するかコメントアウトしてください。
 # Render環境では gunicorn が server オブジェクトを使って起動します。
